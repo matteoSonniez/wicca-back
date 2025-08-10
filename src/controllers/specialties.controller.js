@@ -25,6 +25,7 @@ exports.getAllSpecialties = async (req, res) => {
 exports.searchSpecialties = async (req, res) => {
   try {
     const { search } = req.body;
+    console.log(search, "search");
     if (!search) {
       return res.status(400).json({ message: "Le champ de recherche est requis." });
     }

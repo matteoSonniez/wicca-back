@@ -8,5 +8,8 @@ router.get('/get-one/:id', expertsController.getExpert);
 router.patch('/update-specialties/:id', expertsController.updateExpertSpecialties);
 router.post('/search', expertsController.searchExperts);
 router.post('/find-by-specialty', expertsController.findExpertsBySpecialty);
+router.post('/find-by-specialty-name', expertsController.findExpertsBySpecialtyName);
+router.post('/find-with-filters', expertsController.findExpertsWithFilters);
+router.post('/:id/note', expertsController.addNoteToExpert);
 
 module.exports = router;

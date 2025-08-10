@@ -18,8 +18,17 @@ mongoose.connect(
 
 //Middlewares & routes
 app.use(cors());
-app.use(bodyParser.json())
-app.use("/api", apiRouter)
+
+// Route Stripe webhook AVANT tout bodyParser.json()
+app.post(
+  '/api/stripe/webhook',
+  bodyParser.raw({ type: 'application/json' }),
+  require('./controllers/stripe.controller').webhook
+);
+
+// Ensuite, le reste du parsing JSON
+app.use(bodyParser.json());
+app.use("/api", apiRouter);
 //app.use(errorHandler);
 //app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
