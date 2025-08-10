@@ -6,9 +6,8 @@ const mongoose = require('mongoose');
 var cors = require('cors')
 const apiRouter = require('./routes');
 //const errorHandler = require('./middlewares/errorsHandling');
-if (process.env.NODE_ENV !== 'production') {
-  require('dotenv').config();
-}
+require('dotenv').config();
+console.log('MONGODB_URI from env:', process.env.MONGODB_USER);
 
 //mongoDb connect
 mongoose.set("strictQuery", false);
