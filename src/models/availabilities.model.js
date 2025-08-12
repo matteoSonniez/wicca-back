@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const availabilitySchema = new mongoose.Schema({
   expertId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Expert',
     required: true
   },
   date: {
@@ -24,6 +24,9 @@ const availabilitySchema = new mongoose.Schema({
       ref: 'BookedSlot'
     }
   ]
-});
+}, { timestamps: true });
+
+// Évite les doublons par jour et par expert même en cas d'appels concurrents
+availabilitySchema.index({ expertId: 1, date: 1 }, { unique: true });
 
 module.exports = mongoose.model('Availability', availabilitySchema);

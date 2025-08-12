@@ -1,9 +1,9 @@
 exports.createCheckoutSession = async (req, res) => {
-  console.log("Appel de createCheckoutSession, body reçu :", req.body);
+  // console.log("Appel de createCheckoutSession, body reçu :", req.body);
   const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
   try {
     const { amount, currency, success_url, cancel_url, metadata } = req.body;
-    console.log("metadata", req.body.metadata);
+    // console.log("metadata", req.body.metadata);
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'payment',
@@ -33,17 +33,17 @@ exports.createCheckoutSession = async (req, res) => {
 
 // Webhook Stripe
 exports.webhook = async (req, res) => {
-  console.log("webhook");
+  // console.log("webhook");
   const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  console.log("payement ok", process.env.STRIPE_WEBHOOK_SECRET);
+  // console.log("payement ok", process.env.STRIPE_WEBHOOK_SECRET);
   const sig = req.headers['stripe-signature'];
   let event;
 
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
   } catch (err) {
-    console.error('Erreur Stripe webhook:', err.message);
+    // console.error('Erreur Stripe webhook:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -57,7 +57,10 @@ exports.webhook = async (req, res) => {
     const bookedSlotId = session.metadata?.bookedSlotId;
     if (bookedSlotId) {
       const BookedSlot = require('../models/bookedSlot.model');
-      await BookedSlot.findByIdAndUpdate(bookedSlotId, { cancel: false });
+      await BookedSlot.findByIdAndUpdate(
+        bookedSlotId,
+        { $set: { cancel: false, paid: true }, $unset: { holdExpiresAt: 1 } }
+      );
     }
   } else if (
     event.type === 'checkout.session.expired' ||
@@ -67,21 +70,21 @@ exports.webhook = async (req, res) => {
     // Paiement échoué ou session expirée
     console.log("payement échoué");
     const session = event.data.object;
-    console.log("session.metadata :", session.metadata); // <--- ici aussi
+    // console.log("session.metadata :", session.metadata); // <--- ici aussi
     const bookedSlotId = session.metadata?.bookedSlotId;
     if (bookedSlotId) {
       const BookedSlot = require('../models/bookedSlot.model');
-      await BookedSlot.findByIdAndUpdate(bookedSlotId, { cancel: true });
+      await BookedSlot.findByIdAndUpdate(bookedSlotId, { cancel: true, paid: false });
     }
   } else if (event.type === 'payment_intent.payment_failed') {
     console.log('Paiement échoué via payment_intent.payment_failed');
     const paymentIntent = event.data.object;
-    console.log("paymentIntent.metadata :", paymentIntent.metadata); // <--- tu dois voir ton bookedSlotId ici aussi
+    // console.log("paymentIntent.metadata :", paymentIntent.metadata); // <--- tu dois voir ton bookedSlotId ici aussi
     const bookedSlotId = paymentIntent.metadata?.bookedSlotId;
     if (bookedSlotId) {
       console.log("bookedSlotId", bookedSlotId);
       const BookedSlot = require('../models/bookedSlot.model');
-      await BookedSlot.findByIdAndUpdate(bookedSlotId, { cancel: true });
+      await BookedSlot.findByIdAndUpdate(bookedSlotId, { cancel: true, paid: false });
     }
   }
 

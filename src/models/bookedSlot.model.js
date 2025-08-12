@@ -31,11 +31,24 @@ const bookedSlotSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  paid: {
+    type: Boolean,
+    default: false
+  },
+  // Si défini, le "hold" expirera automatiquement via un TTL index
+  holdExpiresAt: {
+    type: Date,
+    default: null
+  },
   specialty: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Specialty',
     required: true
   }
-});
+}, { timestamps: true });
 
-module.exports = mongoose.model('BookedSlot', bookedSlotSchema); 
+// Note: pas de TTL automatique sur holdExpiresAt pour éviter de supprimer un slot
+// avant la réception tardive d'un webhook Stripe. Le nettoyage pourra être fait
+// via un job planifié si nécessaire.
+
+module.exports = mongoose.model('BookedSlot', bookedSlotSchema);

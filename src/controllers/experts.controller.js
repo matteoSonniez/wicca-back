@@ -318,3 +318,28 @@ exports.addNoteToExpert = async (req, res) => {
 
 
 
+// Récupérer une liste d'experts (par défaut: 15 premiers, les plus récents)
+exports.getExperts = async (req, res) => {
+  try {
+    const parsedLimit = parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 100)) : 15;
+
+    const experts = await Expert.find({})
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate([
+        { path: 'specialties.specialty' },
+        { path: 'specialties.subSpecialties' }
+      ]);
+
+    const payload = experts.map(e => {
+      const obj = e.toObject();
+      obj.noteMoyenneSur100 = getNoteMoyenneSur100(obj.notes);
+      return obj;
+    });
+
+    res.status(200).json(payload);
+  } catch (error) {
+    res.status(500).json({ message: "Erreur lors de la récupération des experts", error: error.message });
+  }
+};

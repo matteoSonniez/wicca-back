@@ -10,13 +10,34 @@ async function getAvailabilitiesForExpert(expertId, duration) {
   const mm = String(today.getMonth() + 1).padStart(2, '0');
   const dd = String(today.getDate()).padStart(2, '0');
   const todayStr = `${yyyy}-${mm}-${dd}`;
+
+  // 1) Nettoyage des dates passées
   await Availability.deleteMany({ expertId, date: { $lt: todayStr } });
+
+  // 2) Déduplication stricte par date si des doublons existent déjà
+  const duplicates = await Availability.aggregate([
+    { $match: { expertId: expert._id } },
+    { $group: { _id: { date: "$date" }, ids: { $push: "$_id" }, count: { $sum: 1 } } },
+    { $match: { count: { $gt: 1 } } }
+  ]);
+  for (const d of duplicates) {
+    const ids = d.ids;
+    const keepId = ids[0];
+    const toDelete = ids.slice(1);
+    if (toDelete.length) {
+      await Availability.deleteMany({ _id: { $in: toDelete } });
+    }
+  }
+
+  // 3) Lire les dispos actuelles à partir d'aujourd'hui
   let availabilities = await Availability.find({
     expertId,
     date: { $gte: todayStr }
   }).sort({ date: 1 }).populate('bookedSlots');
+
+  // 4) Compléter jusqu'à 14 jours manquants (upsert, évite doublons)
   if (availabilities.length < 14) {
-    const existingDates = availabilities.map(a => a.date);
+    const existingDates = new Set(availabilities.map(a => a.date));
     let startDate = availabilities.length > 0 ? new Date(availabilities[availabilities.length - 1].date) : today;
     for (let i = availabilities.length; i < 14; i++) {
       let dateToAdd;
@@ -31,18 +52,25 @@ async function getAvailabilitiesForExpert(expertId, duration) {
       const mm = String(dateToAdd.getMonth() + 1).padStart(2, '0');
       const dd = String(dateToAdd.getDate()).padStart(2, '0');
       const dateStr = `${yyyy}-${mm}-${dd}`;
-      if (!existingDates.includes(dateStr)) {
-        const newAvail = new Availability({
-          expertId,
-          date: dateStr,
-          start: expert.availabilityStart,
-          end: expert.availabilityEnd,
-          bookedSlots: []
-        });
-        await newAvail.save();
+      if (!existingDates.has(dateStr)) {
+        const newAvail = await Availability.findOneAndUpdate(
+          { expertId, date: dateStr },
+          {
+            $setOnInsert: {
+              expertId,
+              date: dateStr,
+              start: expert.availabilityStart,
+              end: expert.availabilityEnd,
+              bookedSlots: []
+            }
+          },
+          { new: true, upsert: true }
+        );
+        existingDates.add(dateStr);
         availabilities.push(newAvail);
       }
     }
+    // Re-lecture propre et limitée à 14
     availabilities = await Availability.find({
       expertId,
       date: { $gte: todayStr }
@@ -78,9 +106,13 @@ async function getAvailabilitiesForExpert(expertId, duration) {
         const endStr = `${String(endHSlot).padStart(2, '0')}:${String(endMSlot).padStart(2, '0')}`;
         const startMin = toMinutes(startStr);
         const endMin = toMinutes(endStr);
-        const conflict = avail.bookedSlots
-          .filter(slot => !slot.cancel)
+        const now = new Date();
+        const conflict = (avail.bookedSlots || [])
+          .filter(slot => !!slot && !slot.cancel)
           .some(slot => {
+            const isActiveHold = !slot.paid && slot.holdExpiresAt && new Date(slot.holdExpiresAt) > now;
+            const blocks = slot.paid || isActiveHold;
+            if (!blocks) return false;
             const slotStartMin = toMinutes(slot.start);
             const slotEndMin = toMinutes(slot.end);
             return (startMin < slotEndMin && endMin > slotStartMin);
