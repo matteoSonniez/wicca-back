@@ -115,6 +115,10 @@ exports.searchExperts = async (req, res) => {
 exports.findExpertsBySpecialty = async (req, res) => {
   try {
     const { specialtyId, adressrdv } = req.body;
+    const parsedPage = parseInt((req.body && req.body.page) ?? req.query.page, 10);
+    const parsedLimit = parseInt((req.body && req.body.limit) ?? req.query.limit, 10);
+    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : null;
     if (!specialtyId) {
       return res.status(400).json({ message: "L'ID de la spécialité est requis." });
     }
@@ -124,7 +128,12 @@ exports.findExpertsBySpecialty = async (req, res) => {
     if (adressrdv) {
       query.adressrdv = { $regex: adressrdv, $options: 'i' };
     }
+    const total = await Expert.countDocuments(query);
+    const skip = limit ? (page - 1) * limit : 0;
     const experts = await Expert.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit || 0)
       .populate([
         { path: 'specialties.specialty' },
         { path: 'specialties.subSpecialties' }
@@ -134,7 +143,16 @@ exports.findExpertsBySpecialty = async (req, res) => {
       obj.noteMoyenneSur100 = getNoteMoyenneSur100(obj.notes);
       return obj;
     });
-    res.status(200).json(expertsWithNote);
+    if (!limit) {
+      return res.status(200).json(expertsWithNote);
+    }
+    return res.status(200).json({
+      results: expertsWithNote,
+      total,
+      page,
+      limit,
+      hasMore: skip + expertsWithNote.length < total
+    });
   } catch (error) {
     res.status(500).json({ message: "Erreur lors de la recherche d'experts par spécialité", error: error.message });
   }
@@ -183,8 +201,13 @@ exports.findExpertsWithFilters = async (req, res) => {
       maxPrice,
       duree,
       disponibilite, // "immediat", "aujourdhui", "troisjours", null
-      langues // tableau de langues à filtrer
+      langues, // tableau de langues à filtrer
+      includeHistogram // optionnel: renvoyer la distribution des prix sur l'ensemble du résultat filtré
     } = req.body;
+    const parsedPage = parseInt((req.body && req.body.page) ?? req.query.page, 10);
+    const parsedLimit = parseInt((req.body && req.body.limit) ?? req.query.limit, 10);
+    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : null;
 
     const query = {};
 
@@ -200,87 +223,43 @@ exports.findExpertsWithFilters = async (req, res) => {
     if (onsite !== undefined) {
       query.onsite = onsite;
     }
-    // On filtre sur le prix_minute * durée
-    if (minPrice !== undefined || maxPrice !== undefined) {
-      // On ne peut pas faire ce calcul en pur MongoDB, donc on filtre après
-    }
-
-    // Récupère les experts
-    let experts = await Expert.find(query)
-      .populate([
-        { path: 'specialties.specialty' }
-      ]);
-
-    // Filtrage JS pour les langues
+    // Filtres langues directement en Mongo (AND logique sur les langues demandées)
     if (langues && Array.isArray(langues) && langues.length > 0) {
-      experts = experts.filter(expert =>
-        langues.every(lang => {
-          if (lang === "français") return expert.francais === true;
-          if (lang === "anglais") return expert.anglais === true;
-          if (lang === "roumain") return expert.roumain === true;
-          if (lang === "allemand") return expert.allemand === true;
-          if (lang === "italien") return expert.italien === true;
-          if (lang === "espagnol") return expert.espagnol === true;
-          return false;
-        })
-      );
+      if (langues.includes('français')) query.francais = true;
+      if (langues.includes('anglais')) query.anglais = true;
+      if (langues.includes('roumain')) query.roumain = true;
+      if (langues.includes('allemand')) query.allemand = true;
+      if (langues.includes('italien')) query.italien = true;
+      if (langues.includes('espagnol')) query.espagnol = true;
     }
 
-    // Filtrage JS pour le prix
+    // Filtre prix en Mongo: prix_minute * duree ∈ [minPrice, maxPrice] -> prix_minute ∈ [minPrice/d, maxPrice/d]
     if (minPrice !== undefined || maxPrice !== undefined || duree !== undefined) {
-      const d = duree || 30;
-      experts = experts.filter(expert => {
-        const prix = expert.prix_minute * d;
-        if (minPrice !== undefined && prix < minPrice) return false;
-        if (maxPrice !== undefined && prix > maxPrice) return false;
-        return true;
-      });
-    }
-
-    // Filtrage JS pour la disponibilité (si besoin d'appeler une autre collection ou une fonction)
-    if (disponibilite) {
-      // Ici il faut que tu aies une fonction utilitaire pour checker la dispo d'un expert
-      // Par exemple, getAvailabilities(expert._id, duree) qui retourne les créneaux
-      // Tu peux faire un Promise.all pour tous les experts et ne garder que ceux qui matchent la dispo
-      // (pseudo-code, à adapter selon ton modèle de dispo)
-      const now = new Date();
-      const threeDaysLater = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
-      const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
-      const todayStr = now.toISOString().slice(0, 10);
-
-      // Importe ta fonction getAvailabilities si besoin
-      const filtered = [];
-      for (const expert of experts) {
-        // Appelle ta fonction qui récupère les créneaux pour cet expert
-        const availabilities = await getAvailabilitiesForExpert(expert._id, duree || 30); // à adapter
-        let isAvailable = false;
-        if (disponibilite === "immediat") {
-          isAvailable = availabilities.some(day =>
-            day.slots.some(slot => {
-              const slotDate = new Date(`${day.date}T${slot.start}`);
-              return slotDate >= now && slotDate <= twoHoursLater;
-            })
-          );
-        } else if (disponibilite === "aujourdhui") {
-          isAvailable = availabilities.some(day =>
-            day.date.slice(0, 10) === todayStr && day.slots.length > 0
-          );
-        } else if (disponibilite === "troisjours") {
-          isAvailable = availabilities.some(day => {
-            const dayDate = new Date(day.date);
-            return dayDate >= now && dayDate <= threeDaysLater && day.slots.length > 0;
-          });
-        }
-        if (disponibilite && isAvailable) filtered.push(expert);
-        if (!disponibilite) filtered.push(expert);
+      const d = (duree || 30);
+      const priceClause = {};
+      if (minPrice !== undefined) priceClause.$gte = Math.ceil(minPrice / d);
+      if (maxPrice !== undefined) priceClause.$lte = Math.floor(maxPrice / d);
+      if (Object.keys(priceClause).length > 0) {
+        query.prix_minute = priceClause;
       }
-      experts = filtered;
     }
 
-    const expertsWithAvail = await Promise.all(
-      experts.map(async expert => {
-        const availabilities = await getAvailabilitiesForExpert(expert._id, duree || 30);
-        // On convertit en objet simple (pour éviter les soucis de toJSON de Mongoose)
+    // Compte total après filtres Mongo (hors disponibilité)
+    const totalAfterBasicFilters = await Expert.countDocuments(query);
+
+    // Pagination DB
+    const skip = limit ? (page - 1) * limit : 0;
+    let expertsPage = await Expert.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit || 0)
+      .populate([{ path: 'specialties.specialty' }]);
+
+    // Récupération des dispos + application du filtre de disponibilité SUR LA PAGE COURANTE uniquement
+    const dForAvail = duree || 30;
+    let expertsWithAvail = await Promise.all(
+      expertsPage.map(async expert => {
+        const availabilities = await getAvailabilitiesForExpert(expert._id, dForAvail);
         return {
           ...expert.toObject(),
           availabilities,
@@ -289,7 +268,96 @@ exports.findExpertsWithFilters = async (req, res) => {
       })
     );
 
-    res.status(200).json(expertsWithAvail);
+    if (disponibilite) {
+      const now = new Date();
+      const threeDaysLater = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+      const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+      const todayStr = now.toISOString().slice(0, 10);
+      expertsWithAvail = expertsWithAvail.filter(exp => {
+        const avails = exp.availabilities || [];
+        if (disponibilite === 'immediat') {
+          return avails.some(day => day.slots.some(slot => {
+            const slotDate = new Date(`${day.date}T${slot.start}`);
+            return slotDate >= now && slotDate <= twoHoursLater;
+          }));
+        }
+        if (disponibilite === 'aujourdhui') {
+          return avails.some(day => day.date.slice(0, 10) === todayStr && day.slots.length > 0);
+        }
+        if (disponibilite === 'troisjours') {
+          return avails.some(day => {
+            const dayDate = new Date(day.date);
+            return dayDate >= now && dayDate <= threeDaysLater && day.slots.length > 0;
+          });
+        }
+        return true;
+      });
+    }
+
+    // Construction optionnelle de l'histogramme (distribution des prix) sur TOUT l'ensemble filtré
+    let priceData = undefined;
+    let totalForResponse = totalAfterBasicFilters; // par défaut: total sans filtre de disponibilité
+    if (includeHistogram) {
+      // Récupère tous les experts correspondant aux filtres de base (sans pagination)
+      const allMatchingBasic = await Expert.find(query).select({ _id: 1, prix_minute: 1 });
+
+      const dForAvailAll = duree || 30;
+      let allMatching = allMatchingBasic;
+
+      // Si un filtre de disponibilité est demandé, on l'applique sur l'ensemble
+      if (disponibilite) {
+        const now = new Date();
+        const threeDaysLater = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+        const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+        const todayStr = now.toISOString().slice(0, 10);
+
+        const filtered = await Promise.all(
+          allMatchingBasic.map(async (exp) => {
+            const avails = await getAvailabilitiesForExpert(exp._id, dForAvailAll);
+            let match = true;
+            if (disponibilite === 'immediat') {
+              match = avails.some(day => day.slots.some(slot => {
+                const slotDate = new Date(`${day.date}T${slot.start}`);
+                return slotDate >= now && slotDate <= twoHoursLater;
+              }));
+            } else if (disponibilite === 'aujourdhui') {
+              match = avails.some(day => day.date.slice(0, 10) === todayStr && day.slots.length > 0);
+            } else if (disponibilite === 'troisjours') {
+              match = avails.some(day => {
+                const dayDate = new Date(day.date);
+                return dayDate >= now && dayDate <= threeDaysLater && day.slots.length > 0;
+              });
+            }
+            return match ? exp : null;
+          })
+        );
+        allMatching = filtered.filter(Boolean);
+        totalForResponse = allMatching.length;
+      } else {
+        totalForResponse = allMatchingBasic.length;
+      }
+
+      // Construit la liste des prix à la minute pour laisser le front calculer selon la durée choisie
+      const pricePerMinute = allMatching
+        .map(e => (typeof e.prix_minute === 'number' ? e.prix_minute : null))
+        .filter(p => typeof p === 'number' && !isNaN(p));
+
+      priceData = { pricePerMinute };
+    }
+
+    if (!limit) {
+      // Retourne directement la liste complète (sans pagination)
+      return res.status(200).json(priceData ? { results: expertsWithAvail, priceData } : expertsWithAvail);
+    }
+
+    return res.status(200).json({
+      results: expertsWithAvail,
+      total: totalForResponse,
+      page,
+      limit,
+      hasMore: skip + (limit || 0) < totalForResponse,
+      ...(priceData ? { priceData } : {})
+    });
   } catch (error) {
     res.status(500).json({ message: "Erreur lors de la recherche d'experts avec filtres", error: error.message });
   }
