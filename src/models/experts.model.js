@@ -66,10 +66,24 @@ const expertSchema = mongoose.Schema({
     type: String, // Format: "17:00"
     required: true
   },
+  weeklySchedule: {
+    mon: [{ start: { type: String, trim: true }, end: { type: String, trim: true } }],
+    tue: [{ start: { type: String, trim: true }, end: { type: String, trim: true } }],
+    wed: [{ start: { type: String, trim: true }, end: { type: String, trim: true } }],
+    thu: [{ start: { type: String, trim: true }, end: { type: String, trim: true } }],
+    fri: [{ start: { type: String, trim: true }, end: { type: String, trim: true } }],
+    sat: [{ start: { type: String, trim: true }, end: { type: String, trim: true } }],
+    sun: [{ start: { type: String, trim: true }, end: { type: String, trim: true } }]
+  },
   specialties: [{
     specialty: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Specialty'
+    },
+    prix_minute: {
+      type: Number,
+      min: 0,
+      default: null
     },
     subSpecialties: [{
       type: mongoose.Schema.Types.ObjectId,
@@ -80,6 +94,10 @@ const expertSchema = mongoose.Schema({
     type: Number,
     min: 1,
     max: 5
+  }],
+  rdv: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'BookedSlot'
   }]
 },
   {

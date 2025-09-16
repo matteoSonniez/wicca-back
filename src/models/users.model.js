@@ -20,7 +20,11 @@ const userSchema = mongoose.Schema({
   },
   phone: {
     type: String,
-  }
+  },
+  rdv: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'BookedSlot'
+  }]
 },
   {
     timestamps: true

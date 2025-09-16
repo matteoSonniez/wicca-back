@@ -10,14 +10,11 @@ const availabilitySchema = new mongoose.Schema({
     type: String, // Format: YYYY-MM-DD
     required: true
   },
-  start: {
-    type: String, // Heure de début de la plage de dispo (HH:mm)
-    required: true
-  },
-  end: {
-    type: String, // Heure de fin de la plage de dispo (HH:mm)
-    required: true
-  },
+  // Nouvelle forme: plusieurs plages horaires dans la journée
+  ranges: [{
+    start: { type: String, trim: true }, // HH:mm
+    end: { type: String, trim: true }    // HH:mm
+  }],
   bookedSlots: [
     {
       type: mongoose.Schema.Types.ObjectId,

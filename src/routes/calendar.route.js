@@ -6,6 +6,7 @@ const auth = require('../utils/auth');
 // router.post('/generate14days', calendarController.add14DaysAvailabilities);
 router.post('/bookSlot', auth, calendarController.bookSlot);
 router.get('/availabilities/:expertId', calendarController.getAvailableSlots);
+router.patch('/availabilities/:expertId/:date', calendarController.updateAvailabilityRanges);
 // Supprimer un créneau réservé (bookedSlot)
 router.delete('/bookedSlot/:slotId', auth, calendarController.deleteBookedSlot);
 

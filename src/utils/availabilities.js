@@ -10,9 +10,16 @@ async function getAvailabilitiesForExpert(expertId, duration) {
   const mm = String(today.getMonth() + 1).padStart(2, '0');
   const dd = String(today.getDate()).padStart(2, '0');
   const todayStr = `${yyyy}-${mm}-${dd}`;
+  // Fenêtre d'horizon: aujourd'hui + 14 jours (15 jours au total)
+  const horizon = new Date(today);
+  horizon.setDate(today.getDate() + 14);
+  const yyyyH = horizon.getFullYear();
+  const mmH = String(horizon.getMonth() + 1).padStart(2, '0');
+  const ddH = String(horizon.getDate()).padStart(2, '0');
+  const horizonEndStr = `${yyyyH}-${mmH}-${ddH}`;
 
-  // 1) Nettoyage des dates passées
-  await Availability.deleteMany({ expertId, date: { $lt: todayStr } });
+  // 1) Nettoyage: dates passées ET au-delà de l'horizon
+  await Availability.deleteMany({ expertId, $or: [ { date: { $lt: todayStr } }, { date: { $gt: horizonEndStr } } ] });
 
   // 2) Déduplication stricte par date si des doublons existent déjà
   const duplicates = await Availability.aggregate([
@@ -29,17 +36,17 @@ async function getAvailabilitiesForExpert(expertId, duration) {
     }
   }
 
-  // 3) Lire les dispos actuelles à partir d'aujourd'hui
+  // 3) Lire les dispos actuelles dans la fenêtre
   let availabilities = await Availability.find({
     expertId,
-    date: { $gte: todayStr }
+    date: { $gte: todayStr, $lte: horizonEndStr }
   }).sort({ date: 1 }).populate('bookedSlots');
 
   // 4) Compléter jusqu'à 14 jours manquants (upsert, évite doublons)
-  if (availabilities.length < 14) {
+  if (availabilities.length < 15) { // 15 jours incluant aujourd'hui
     const existingDates = new Set(availabilities.map(a => a.date));
     let startDate = availabilities.length > 0 ? new Date(availabilities[availabilities.length - 1].date) : today;
-    for (let i = availabilities.length; i < 14; i++) {
+    for (let i = availabilities.length; i < 15; i++) {
       let dateToAdd;
       if (i === availabilities.length && availabilities.length === 0) {
         dateToAdd = new Date(startDate);
@@ -52,15 +59,28 @@ async function getAvailabilitiesForExpert(expertId, duration) {
       const mm = String(dateToAdd.getMonth() + 1).padStart(2, '0');
       const dd = String(dateToAdd.getDate()).padStart(2, '0');
       const dateStr = `${yyyy}-${mm}-${dd}`;
+      // ne pas dépasser l'horizon
+      if (dateStr > horizonEndStr) break;
       if (!existingDates.has(dateStr)) {
+        // Déterminer la clé de jour pour weeklySchedule
+        const day = dateToAdd.getDay(); // 0=Sun..6=Sat
+        const key = ['sun','mon','tue','wed','thu','fri','sat'][day];
+        const rangesWS = (expert.weeklySchedule && expert.weeklySchedule[key]) ? expert.weeklySchedule[key] : [];
+        let ranges = [];
+        if (Array.isArray(rangesWS) && rangesWS.length > 0) {
+          ranges = rangesWS.map(r => ({ start: r.start, end: r.end }));
+        }
+        // Si aucune range: ne pas créer d'Availability pour cette date
+        if (ranges.length === 0) {
+          continue;
+        }
         const newAvail = await Availability.findOneAndUpdate(
           { expertId, date: dateStr },
           {
             $setOnInsert: {
               expertId,
               date: dateStr,
-              start: expert.availabilityStart,
-              end: expert.availabilityEnd,
+              ranges,
               bookedSlots: []
             }
           },
@@ -73,8 +93,8 @@ async function getAvailabilitiesForExpert(expertId, duration) {
     // Re-lecture propre et limitée à 14
     availabilities = await Availability.find({
       expertId,
-      date: { $gte: todayStr }
-    }).sort({ date: 1 }).limit(14).populate('bookedSlots');
+      date: { $gte: todayStr, $lte: horizonEndStr }
+    }).sort({ date: 1 }).limit(15).populate('bookedSlots');
   }
   function toMinutes(str) {
     const [h, m] = str.split(":").map(Number);
@@ -82,10 +102,8 @@ async function getAvailabilitiesForExpert(expertId, duration) {
   }
   const result = availabilities.map(avail => {
     const slots = [];
-    let [h, m] = avail.start.split(":").map(Number);
-    const [endH, endM] = avail.end.split(":").map(Number);
-    const endMinutes = endH * 60 + endM;
-    let current = h * 60 + m;
+    // Construire la liste des plages effectives pour la journée
+    const effectiveRanges = Array.isArray(avail.ranges) ? avail.ranges : [];
     let nowMinutes = 0;
     const today = new Date();
     const yyyy = today.getFullYear();
@@ -95,37 +113,44 @@ async function getAvailabilitiesForExpert(expertId, duration) {
     if (avail.date === todayStr) {
       nowMinutes = today.getHours() * 60 + today.getMinutes();
     }
-    while (current + duration <= endMinutes) {
-      if (avail.date !== todayStr || current >= nowMinutes) {
-        const startH = Math.floor(current / 60);
-        const startM = current % 60;
-        const startStr = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`;
-        const endSlot = current + duration;
-        const endHSlot = Math.floor(endSlot / 60);
-        const endMSlot = endSlot % 60;
-        const endStr = `${String(endHSlot).padStart(2, '0')}:${String(endMSlot).padStart(2, '0')}`;
-        const startMin = toMinutes(startStr);
-        const endMin = toMinutes(endStr);
-        const now = new Date();
-        const conflict = (avail.bookedSlots || [])
-          .filter(slot => !!slot && !slot.cancel)
-          .some(slot => {
-            const isActiveHold = !slot.paid && slot.holdExpiresAt && new Date(slot.holdExpiresAt) > now;
-            const blocks = slot.paid || isActiveHold;
-            if (!blocks) return false;
-            const slotStartMin = toMinutes(slot.start);
-            const slotEndMin = toMinutes(slot.end);
-            return (startMin < slotEndMin && endMin > slotStartMin);
-          });
-        if (!conflict) {
-          slots.push({ start: startStr, end: endStr });
+    for (const range of effectiveRanges) {
+      const [h, m] = (range.start || '00:00').split(":").map(Number);
+      const [endH, endM] = (range.end || '00:00').split(":").map(Number);
+      const endMinutes = endH * 60 + endM;
+      let current = h * 60 + m;
+      while (current + duration <= endMinutes) {
+        if (avail.date !== todayStr || current >= nowMinutes) {
+          const startH = Math.floor(current / 60);
+          const startM = current % 60;
+          const startStr = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`;
+          const endSlot = current + duration;
+          const endHSlot = Math.floor(endSlot / 60);
+          const endMSlot = endSlot % 60;
+          const endStr = `${String(endHSlot).padStart(2, '0')}:${String(endMSlot).padStart(2, '0')}`;
+          const startMin = toMinutes(startStr);
+          const endMin = toMinutes(endStr);
+          const now = new Date();
+          const conflict = (avail.bookedSlots || [])
+            .filter(slot => !!slot && !slot.cancel)
+            .some(slot => {
+              const isActiveHold = !slot.paid && slot.holdExpiresAt && new Date(slot.holdExpiresAt) > now;
+              const blocks = slot.paid || isActiveHold;
+              if (!blocks) return false;
+              const slotStartMin = toMinutes(slot.start);
+              const slotEndMin = toMinutes(slot.end);
+              return (startMin < slotEndMin && endMin > slotStartMin);
+            });
+          if (!conflict) {
+            slots.push({ start: startStr, end: endStr });
+          }
         }
+        current += duration;
       }
-      current += duration;
     }
     return {
       date: avail.date,
-      slots
+      slots,
+      ranges: Array.isArray(avail.ranges) ? avail.ranges : []
     };
   });
   return result;

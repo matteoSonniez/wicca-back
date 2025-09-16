@@ -35,6 +35,10 @@ const bookedSlotSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  price: {
+    type: Number,
+    default: 0
+  },
   // Si défini, le "hold" expirera automatiquement via un TTL index
   holdExpiresAt: {
     type: Date,

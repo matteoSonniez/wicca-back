@@ -11,6 +11,8 @@ router.post('/find-by-specialty', expertsController.findExpertsBySpecialty);
 router.post('/find-by-specialty-name', expertsController.findExpertsBySpecialtyName);
 router.post('/find-with-filters', expertsController.findExpertsWithFilters);
 router.post('/:id/note', expertsController.addNoteToExpert);
+router.patch('/:id/availability', expertsController.updateAvailabilityWindow);
+router.patch('/:id/weekly-schedule', expertsController.updateWeeklySchedule);
 router.get('/', expertsController.getExperts);
 
 module.exports = router;

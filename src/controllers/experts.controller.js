@@ -2,6 +2,7 @@ const bcrypt = require("bcrypt");
 const signJwt = require("../utils/signJwt");
 const Expert = require("../models/experts.model");
 const Specialty = require('../models/specialties.model');
+const Availability = require('../models/availabilities.model');
 const { getAvailabilitiesForExpert } = require('../utils/availabilities');
 
 function normalize(str) {
@@ -82,6 +83,110 @@ exports.updateExpertSpecialties = async (req, res) => {
     res.status(200).json({ message: "Spécialités mises à jour", expert });
   } catch (error) {
     res.status(500).json({ message: "Erreur lors de la mise à jour des spécialités", error: error.message });
+  }
+};
+
+// PATCH /api/experts/:id/availability
+exports.updateAvailabilityWindow = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { availabilityStart, availabilityEnd } = req.body || {};
+    if (!availabilityStart || !availabilityEnd) {
+      return res.status(400).json({ message: "availabilityStart et availabilityEnd sont requis (format HH:MM)" });
+    }
+    const timeRegex = /^\d{2}:\d{2}$/;
+    if (!timeRegex.test(availabilityStart) || !timeRegex.test(availabilityEnd)) {
+      return res.status(400).json({ message: "Format invalide. Utilisez HH:MM" });
+    }
+    const expert = await Expert.findByIdAndUpdate(
+      id,
+      { availabilityStart, availabilityEnd },
+      { new: true }
+    );
+    if (!expert) return res.status(404).json({ message: "Expert non trouvé" });
+
+    // Met à jour les documents Availability à partir d'aujourd'hui pour refléter la nouvelle plage
+    const todayStr = new Date().toISOString().slice(0, 10);
+    await Availability.updateMany(
+      { expertId: id, date: { $gte: todayStr } },
+      { $set: {} }
+    );
+
+    res.status(200).json({ message: "Disponibilités mises à jour", expert });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// PATCH /api/experts/:id/weekly-schedule
+exports.updateWeeklySchedule = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { weeklySchedule } = req.body || {};
+    if (!weeklySchedule || typeof weeklySchedule !== 'object') {
+      return res.status(400).json({ message: "weeklySchedule requis" });
+    }
+    const keys = ['mon','tue','wed','thu','fri','sat','sun'];
+    const timeRegex = /^\d{2}:\d{2}$/;
+    for (const k of keys) {
+      const arr = Array.isArray(weeklySchedule[k]) ? weeklySchedule[k] : [];
+      for (const r of arr) {
+        if (!timeRegex.test(r.start || '') || !timeRegex.test(r.end || '')) {
+          return res.status(400).json({ message: `Plage invalide pour ${k} (format HH:MM)` });
+        }
+        if ((r.start || '') >= (r.end || '')) {
+          return res.status(400).json({ message: `start doit être < end pour ${k}` });
+        }
+      }
+    }
+    const expert = await Expert.findByIdAndUpdate(
+      id,
+      { weeklySchedule },
+      { new: true }
+    );
+    if (!expert) return res.status(404).json({ message: 'Expert non trouvé' });
+
+    // Propager aux 14 prochains jours
+    const today = new Date();
+    const horizon = new Date(today);
+    horizon.setDate(today.getDate() + 14);
+    const updates = [];
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${yyyy}-${mm}-${dd}`;
+      const day = d.getDay(); // 0=Sun..6=Sat
+      const key = ['sun','mon','tue','wed','thu','fri','sat'][day];
+      const ranges = (weeklySchedule[key] || []).map(r => ({ start: r.start, end: r.end }));
+      if (ranges.length === 0) {
+        // Supprime la disponibilité si elle existe pour ce jour
+        updates.push(Availability.deleteOne({ expertId: id, date: dateStr }));
+      } else {
+        updates.push(Availability.findOneAndUpdate(
+          { expertId: id, date: dateStr },
+          { $set: { ranges } },
+          { new: true, upsert: true }
+        ));
+      }
+    }
+    // Supprimer toute disponibilité hors fenêtre
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const todayStr = `${yyyy}-${mm}-${dd}`;
+    const yyyyH = horizon.getFullYear();
+    const mmH = String(horizon.getMonth() + 1).padStart(2, '0');
+    const ddH = String(horizon.getDate()).padStart(2, '0');
+    const horizonEndStr = `${yyyyH}-${mmH}-${ddH}`;
+    updates.push(Availability.deleteMany({ expertId: id, $or: [ { date: { $lt: todayStr } }, { date: { $gt: horizonEndStr } } ] }));
+    await Promise.all(updates);
+
+    res.status(200).json({ message: 'Planning hebdomadaire mis à jour', expert });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 

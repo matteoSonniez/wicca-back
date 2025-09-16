@@ -7,6 +7,11 @@ const specialtySchema = new mongoose.Schema({
     unique: true,
     trim: true
   },
+  color: {
+    type: String,
+    trim: true,
+    default: null
+  },
   subSpecialties: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SubSpecialty'
