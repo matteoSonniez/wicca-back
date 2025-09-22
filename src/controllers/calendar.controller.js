@@ -18,12 +18,31 @@ module.exports.bookSlot = async (req, res) => {
     if (!availability) {
       return res.status(404).json({ message: "Disponibilité non trouvée pour ce jour" });
     }
-    // Récupérer l'expert pour calculer le prix
-    const expert = await ExpertModel.findById(expertId).select({ prix_minute: 1 });
+    // Récupérer l'expert pour vérifier et éventuellement calculer le prix
+    const expert = await ExpertModel.findById(expertId).select({ specialties: 1 });
     if (!expert) {
       return res.status(404).json({ message: "Expert introuvable" });
     }
-    const computedPrice = Number(duration) * Number(expert.prix_minute || 0);
+    const durationNum = Number(duration);
+    let computedPrice = undefined;
+    // 1) Si le front fournit un prix numérique, on l'utilise tel quel
+    if (req.body && typeof req.body.price !== 'undefined') {
+      const provided = Number(req.body.price);
+      if (Number.isFinite(provided) && provided >= 0) {
+        computedPrice = provided;
+      }
+    }
+    // 2) Sinon, on tente de lire le prix de la spécialité pour la durée
+    if (typeof computedPrice === 'undefined') {
+      try {
+        const key = `prix_${durationNum}min`;
+        const spec = (expert.specialties || []).find(s => String(s.specialty) === String(specialty));
+        const val = spec && typeof spec[key] === 'number' ? Number(spec[key]) : null;
+        computedPrice = (typeof val === 'number' && !isNaN(val) && val >= 0) ? val : 0;
+      } catch (e) {
+        computedPrice = 0;
+      }
+    }
     // Calculer l'heure de fin
     const [startHour, startMinute] = start.split(":").map(Number);
     const startDate = new Date(`1970-01-01T${start}:00Z`);

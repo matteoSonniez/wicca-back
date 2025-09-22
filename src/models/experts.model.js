@@ -18,18 +18,31 @@ const expertSchema = mongoose.Schema({
     type: String,
     required: true
   },
-  prix_minute: {
-    type: Number,
-    required: true
+  description: {
+    type: String,
+    trim: true,
+    default: ''
   },
-  visio: {
-    type: Boolean,
-    required: true
+  photoUrl: {
+    type: String,
+    default: ''
   },
-  onsite: {
-    type: Boolean,
-    required: true
+  photoPublicId: {
+    type: String,
+    default: ''
   },
+  // prix_minute: {
+  //   type: Number,
+  //   required: true
+  // },
+  // visio: {
+  //   type: Boolean,
+  //   required: true
+  // },
+  // onsite: {
+  //   type: Boolean,
+  //   required: true
+  // },
   adressrdv: {
     type: String,
     required: true
@@ -58,14 +71,14 @@ const expertSchema = mongoose.Schema({
     type: Boolean,
     default: false
   },
-  availabilityStart: {
-    type: String, // Format: "09:00"
-    required: true
-  },
-  availabilityEnd: {
-    type: String, // Format: "17:00"
-    required: true
-  },
+  // availabilityStart: {
+  //   type: String, // Format: "09:00"
+  //   required: true
+  // },
+  // availabilityEnd: {
+  //   type: String, // Format: "17:00"
+  //   required: true
+  // },
   weeklySchedule: {
     mon: [{ start: { type: String, trim: true }, end: { type: String, trim: true } }],
     tue: [{ start: { type: String, trim: true }, end: { type: String, trim: true } }],
@@ -80,7 +93,40 @@ const expertSchema = mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Specialty'
     },
-    prix_minute: {
+    description: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    visio: {
+      type: Boolean,
+      default: false
+    },
+    onsite: {
+      type: Boolean,
+      default: false
+    },
+    prix_15min: {
+      type: Number,
+      min: 0,
+      default: null
+    },
+    prix_30min: {
+      type: Number,
+      min: 0,
+      default: null
+    },
+    prix_45min: {
+      type: Number,
+      min: 0,
+      default: null
+    },
+    prix_60min: {
+      type: Number,
+      min: 0,
+      default: null
+    },
+    prix_90min: {
       type: Number,
       min: 0,
       default: null
@@ -98,7 +144,20 @@ const expertSchema = mongoose.Schema({
   rdv: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'BookedSlot'
-  }]
+  }],
+  // Stripe Connect
+  stripeAccountId: {
+    type: String,
+    default: ''
+  },
+  chargesEnabled: {
+    type: Boolean,
+    default: false
+  },
+  payoutsEnabled: {
+    type: Boolean,
+    default: false
+  }
 },
   {
     timestamps: true

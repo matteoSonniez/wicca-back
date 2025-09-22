@@ -4,6 +4,12 @@ const Expert = require("../models/experts.model");
 const Specialty = require('../models/specialties.model');
 const Availability = require('../models/availabilities.model');
 const { getAvailabilitiesForExpert } = require('../utils/availabilities');
+const cloudinary = require('cloudinary').v2;
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 function normalize(str) {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -18,9 +24,9 @@ function getNoteMoyenneSur100(notes) {
 
 exports.createExpert = async (req, res, next) => {
   try {
-    const { firstName, lastName, email, password, adressrdv, specialties, availabilityStart, availabilityEnd, prix_minute, visio, onsite, francais, anglais, roumain, allemand, italien, espagnol } = req.body;
+    const { firstName, lastName, email, password, adressrdv, specialties, francais, anglais, roumain, allemand, italien, espagnol } = req.body;
     // specialties doit être un tableau d'objets : [{ specialty, subSpecialties: [] }]
-    const expert = new Expert({ firstName, lastName, email, password, adressrdv, specialties, availabilityStart, availabilityEnd, prix_minute, visio, onsite, francais, anglais, roumain, allemand, italien, espagnol });
+    const expert = new Expert({ firstName, lastName, email, password, adressrdv, specialties, francais, anglais, roumain, allemand, italien, espagnol });
     await expert.save();
     const token = signJwt({ id: expert._id, email: expert.email, role: 'expert' });
     res.status(201).json({ message: "Expert créé avec succès", expert, token });
@@ -83,6 +89,97 @@ exports.updateExpertSpecialties = async (req, res) => {
     res.status(200).json({ message: "Spécialités mises à jour", expert });
   } catch (error) {
     res.status(500).json({ message: "Erreur lors de la mise à jour des spécialités", error: error.message });
+  }
+};
+
+// POST /api/experts/photo/signature
+exports.getPhotoUploadSignature = async (req, res) => {
+  try {
+    const { folder = 'wicca/experts', upload_preset = 'wicca_expert_photo' } = req.body || {};
+    const timestamp = Math.round((new Date()).getTime() / 1000);
+    const paramsToSign = { timestamp, folder, upload_preset };
+    const signature = cloudinary.utils.api_sign_request(paramsToSign, process.env.CLOUDINARY_API_SECRET);
+    res.status(200).json({
+      timestamp,
+      folder,
+      upload_preset,
+      apiKey: process.env.CLOUDINARY_API_KEY,
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+      signature
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur signature Cloudinary", error: error.message });
+  }
+};
+
+// PATCH /api/experts/:id/photo
+exports.updateExpertPhoto = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { photoUrl, photoPublicId } = req.body || {};
+    if (!photoUrl || !photoPublicId) {
+      return res.status(400).json({ message: 'photoUrl et photoPublicId sont requis' });
+    }
+    const expert = await Expert.findById(id);
+    if (!expert) return res.status(404).json({ message: 'Expert non trouvé' });
+
+    // supprimer l'ancienne si présente
+    if (expert.photoPublicId && expert.photoPublicId !== photoPublicId) {
+      try { await cloudinary.uploader.destroy(expert.photoPublicId); } catch (_) {}
+    }
+
+    expert.photoUrl = photoUrl;
+    expert.photoPublicId = photoPublicId;
+    await expert.save();
+    res.status(200).json({ message: 'Photo mise à jour', expert });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur lors de la mise à jour de la photo", error: error.message });
+  }
+};
+
+// DELETE /api/experts/:id/photo
+exports.deleteExpertPhoto = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const expert = await Expert.findById(id);
+    if (!expert) return res.status(404).json({ message: 'Expert non trouvé' });
+
+    if (expert.photoPublicId) {
+      try { await cloudinary.uploader.destroy(expert.photoPublicId); } catch (_) {}
+    }
+
+    expert.photoUrl = '';
+    expert.photoPublicId = '';
+    await expert.save();
+    res.status(200).json({ message: 'Photo supprimée', expert });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur lors de la suppression de la photo", error: error.message });
+  }
+};
+
+// PATCH /api/experts/:id
+exports.updateExpertProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const allowed = ['firstName','lastName','email','adressrdv','description','francais','anglais','roumain','allemand','italien','espagnol'];
+    const update = {};
+    for (const k of allowed) {
+      if (Object.prototype.hasOwnProperty.call(req.body, k)) {
+        update[k] = req.body[k];
+      }
+    }
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ message: 'Aucun champ valide fourni' });
+    }
+    const expert = await Expert.findByIdAndUpdate(id, update, { new: true })
+      .populate([
+        { path: 'specialties.specialty' },
+        { path: 'specialties.subSpecialties' }
+      ]);
+    if (!expert) return res.status(404).json({ message: 'Expert non trouvé' });
+    res.status(200).json({ message: 'Profil mis à jour', expert });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur lors de la mise à jour du profil", error: error.message });
   }
 };
 
@@ -315,19 +412,10 @@ exports.findExpertsWithFilters = async (req, res) => {
     const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : null;
 
     const query = {};
-
-    if (specialtyId) {
-      query['specialties.specialty'] = specialtyId;
-    }
     if (adressrdv) {
       query.adressrdv = { $regex: adressrdv, $options: 'i' };
     }
-    if (visio !== undefined) {
-      query.visio = visio;
-    }
-    if (onsite !== undefined) {
-      query.onsite = onsite;
-    }
+    // visio/onsite doivent désormais être vérifiés au niveau de specialties (par spécialité)
     // Filtres langues directement en Mongo (AND logique sur les langues demandées)
     if (langues && Array.isArray(langues) && langues.length > 0) {
       if (langues.includes('français')) query.francais = true;
@@ -338,15 +426,41 @@ exports.findExpertsWithFilters = async (req, res) => {
       if (langues.includes('espagnol')) query.espagnol = true;
     }
 
-    // Filtre prix en Mongo: prix_minute * duree ∈ [minPrice, maxPrice] -> prix_minute ∈ [minPrice/d, maxPrice/d]
-    if (minPrice !== undefined || maxPrice !== undefined || duree !== undefined) {
-      const d = (duree || 30);
-      const priceClause = {};
-      if (minPrice !== undefined) priceClause.$gte = Math.ceil(minPrice / d);
-      if (maxPrice !== undefined) priceClause.$lte = Math.floor(maxPrice / d);
-      if (Object.keys(priceClause).length > 0) {
-        query.prix_minute = priceClause;
-      }
+    // Filtre spécialités + prix par durée (et disponibilité de la durée)
+    // Durées supportées et fallback si non fournie
+    const allowedDurations = [15, 30, 45, 60, 90];
+    const duration = allowedDurations.includes(duree) ? duree : 30;
+    const durationPriceKey = `prix_${duration}min`;
+
+    const specialtiesElemMatch = {};
+    if (specialtyId) specialtiesElemMatch.specialty = specialtyId;
+    if (visio !== undefined) {
+      specialtiesElemMatch.visio = visio;
+    }
+    if (onsite !== undefined) {
+      specialtiesElemMatch.onsite = onsite;
+    }
+
+    // Appliquer la fourchette de prix sur le champ de la durée choisie
+    if (minPrice !== undefined || maxPrice !== undefined) {
+      const priceRange = {};
+      if (minPrice !== undefined) priceRange.$gte = Number(minPrice);
+      if (maxPrice !== undefined) priceRange.$lte = Number(maxPrice);
+      specialtiesElemMatch[durationPriceKey] = priceRange;
+    } else if (duree !== undefined) {
+      // Si une durée est explicitement demandée mais pas de fourchette de prix, on exige juste que la durée soit disponible (non null)
+      specialtiesElemMatch[durationPriceKey] = { $ne: null };
+    } else {
+      // Pas de durée explicitement fournie: on utilise la valeur par défaut 30min et on exige la disponibilité du champ
+      specialtiesElemMatch[durationPriceKey] = { $ne: null };
+    }
+
+    // Injecter l'elemMatch seulement si on a des contraintes sur specialties (durée dispo, prix, mode, ou id de spécialité)
+    if (Object.keys(specialtiesElemMatch).length > 0) {
+      query.specialties = { $elemMatch: specialtiesElemMatch };
+    } else if (specialtyId) {
+      // cas limite: specialtyId seul
+      query['specialties.specialty'] = specialtyId;
     }
 
     // Compte total après filtres Mongo (hors disponibilité)
@@ -404,9 +518,9 @@ exports.findExpertsWithFilters = async (req, res) => {
     let totalForResponse = totalAfterBasicFilters; // par défaut: total sans filtre de disponibilité
     if (includeHistogram) {
       // Récupère tous les experts correspondant aux filtres de base (sans pagination)
-      const allMatchingBasic = await Expert.find(query).select({ _id: 1, prix_minute: 1 });
+      const allMatchingBasic = await Expert.find(query).select({ _id: 1, specialties: 1 });
 
-      const dForAvailAll = duree || 30;
+      const dForAvailAll = duration;
       let allMatching = allMatchingBasic;
 
       // Si un filtre de disponibilité est demandé, on l'applique sur l'ensemble
@@ -442,10 +556,24 @@ exports.findExpertsWithFilters = async (req, res) => {
         totalForResponse = allMatchingBasic.length;
       }
 
-      // Construit la liste des prix à la minute pour laisser le front calculer selon la durée choisie
-      const pricePerMinute = allMatching
-        .map(e => (typeof e.prix_minute === 'number' ? e.prix_minute : null))
-        .filter(p => typeof p === 'number' && !isNaN(p));
+      // Construit la liste des prix à la minute équivalents sur la durée sélectionnée
+      // Si specialtyId est fourni, on prend le prix de cette spécialité; sinon, le premier prix dispo pour cette durée
+      const pricePerMinute = allMatching.map((doc) => {
+        const specs = Array.isArray(doc.specialties) ? doc.specialties : [];
+        const key = `prix_${dForAvailAll}min`;
+        let price = null;
+        if (specialtyId) {
+          const match = specs.find(s => String(s.specialty) === String(specialtyId) && typeof s[key] === 'number');
+          price = match ? match[key] : null;
+        } else {
+          const matchAny = specs.find(s => typeof s[key] === 'number');
+          price = matchAny ? matchAny[key] : null;
+        }
+        if (typeof price === 'number' && !isNaN(price) && price > 0) {
+          return price / dForAvailAll; // équivalent prix/minute pour compat front
+        }
+        return null;
+      }).filter(p => typeof p === 'number' && !isNaN(p));
 
       priceData = { pricePerMinute };
     }

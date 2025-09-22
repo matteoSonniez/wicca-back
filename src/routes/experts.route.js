@@ -13,6 +13,10 @@ router.post('/find-with-filters', expertsController.findExpertsWithFilters);
 router.post('/:id/note', expertsController.addNoteToExpert);
 router.patch('/:id/availability', expertsController.updateAvailabilityWindow);
 router.patch('/:id/weekly-schedule', expertsController.updateWeeklySchedule);
+router.post('/photo/signature', expertsController.getPhotoUploadSignature);
+router.patch('/:id/photo', expertsController.updateExpertPhoto);
+router.delete('/:id/photo', expertsController.deleteExpertPhoto);
+router.patch('/:id', expertsController.updateExpertProfile);
 router.get('/', expertsController.getExperts);
 
 module.exports = router;
