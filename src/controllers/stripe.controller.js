@@ -109,15 +109,18 @@ exports.webhook = async (req, res) => {
     const paymentIntentId = session.payment_intent;
     if (bookedSlotId && paymentIntentId) {
       const BookedSlot = require('../models/bookedSlot.model');
-      // Calculer prochain mardi à 14:25 (heure serveur)
+      // Calculer PROCHAIN mardi 14:25 (jamais dans le passé)
       const now = new Date();
       const schedule = new Date(now);
       const day = now.getDay(); // 0=dimanche..1=lundi..2=mardi..6=samedi
-      const isTodayTuesday = day === 2;
-      const before1425 = (now.getHours() < 14) || (now.getHours() === 14 && now.getMinutes() < 25);
-      const daysUntilNextTuesday = isTodayTuesday && before1425 ? 0 : ((9 - day + 7) % 7);
-      schedule.setDate(now.getDate() + daysUntilNextTuesday);
+      const desiredDay = 2; // mardi
+      let daysAhead = (desiredDay - day + 7) % 7; // 0..6
+      schedule.setDate(now.getDate() + daysAhead);
       schedule.setHours(14, 25, 0, 0);
+      if (schedule <= now) {
+        // si on est déjà mardi 14:25 passé, bascule mardi prochain
+        schedule.setDate(schedule.getDate() + 7);
+      }
       await BookedSlot.findByIdAndUpdate(
         bookedSlotId,
         {
