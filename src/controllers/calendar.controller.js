@@ -150,6 +150,15 @@ module.exports.deleteBookedSlot = async (req, res) => {
       { expertId: slot.expert, date: slot.date.toISOString().slice(0, 10) },
       { $pull: { bookedSlots: slot._id } }
     );
+    // Si un PaymentIntent autorisé existe, l'annuler
+    try {
+      if (slot.paymentIntentId && slot.authorized && !slot.paid) {
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        await stripe.paymentIntents.cancel(slot.paymentIntentId);
+      }
+    } catch (e) {
+      console.warn('Annulation PaymentIntent échouée:', e?.message);
+    }
     // Supprimer le slot
     await BookedSlot.deleteOne({ _id: slotId });
     res.status(200).json({ message: "Créneau réservé supprimé avec succès" });

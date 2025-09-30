@@ -429,8 +429,8 @@ exports.findExpertsWithFilters = async (req, res) => {
     // Filtre spécialités + prix par durée (et disponibilité de la durée)
     // Durées supportées et fallback si non fournie
     const allowedDurations = [15, 30, 45, 60, 90];
-    const duration = allowedDurations.includes(duree) ? duree : 30;
-    const durationPriceKey = `prix_${duration}min`;
+    const duration = allowedDurations.includes(duree) ? duree : null; // pas de durée par défaut
+    const durationPriceKey = duration ? `prix_${duration}min` : null;
 
     const specialtiesElemMatch = {};
     if (specialtyId) specialtiesElemMatch.specialty = specialtyId;
@@ -441,18 +441,30 @@ exports.findExpertsWithFilters = async (req, res) => {
       specialtiesElemMatch.onsite = onsite;
     }
 
-    // Appliquer la fourchette de prix sur le champ de la durée choisie
+    // Appliquer la fourchette de prix
     if (minPrice !== undefined || maxPrice !== undefined) {
       const priceRange = {};
       if (minPrice !== undefined) priceRange.$gte = Number(minPrice);
       if (maxPrice !== undefined) priceRange.$lte = Number(maxPrice);
-      specialtiesElemMatch[durationPriceKey] = priceRange;
-    } else if (duree !== undefined) {
-      // Si une durée est explicitement demandée mais pas de fourchette de prix, on exige juste que la durée soit disponible (non null)
+      if (durationPriceKey) {
+        // Si une durée est fournie, filtrer sur le prix de cette durée
+        specialtiesElemMatch[durationPriceKey] = priceRange;
+      } else {
+        // Sinon, accepter si AU MOINS une des durées a un prix dans l'intervalle
+        specialtiesElemMatch.$or = [
+          { prix_15min: priceRange },
+          { prix_30min: priceRange },
+          { prix_45min: priceRange },
+          { prix_60min: priceRange },
+          { prix_90min: priceRange }
+        ];
+      }
+    } else if (duree !== undefined && durationPriceKey) {
+      // Durée explicitement demandée (sans prix): juste exiger que ce prix existe
       specialtiesElemMatch[durationPriceKey] = { $ne: null };
     } else {
-      // Pas de durée explicitement fournie: on utilise la valeur par défaut 30min et on exige la disponibilité du champ
-      specialtiesElemMatch[durationPriceKey] = { $ne: null };
+      // Aucune durée ni prix fournis: ne pas restreindre sur un prix particulier
+      // On laisse uniquement specialtyId/visio/onsite filtrer
     }
 
     // Injecter l'elemMatch seulement si on a des contraintes sur specialties (durée dispo, prix, mode, ou id de spécialité)
@@ -520,7 +532,7 @@ exports.findExpertsWithFilters = async (req, res) => {
       // Récupère tous les experts correspondant aux filtres de base (sans pagination)
       const allMatchingBasic = await Expert.find(query).select({ _id: 1, specialties: 1 });
 
-      const dForAvailAll = duration;
+    const dForAvailAll = duration || 30;
       let allMatching = allMatchingBasic;
 
       // Si un filtre de disponibilité est demandé, on l'applique sur l'ensemble

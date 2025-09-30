@@ -39,8 +39,34 @@ const bookedSlotSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // Id de la Checkout Session Stripe associée (optionnel)
+  stripeSessionId: {
+    type: String,
+    default: null
+  },
   // Si défini, le "hold" expirera automatiquement via un TTL index
   holdExpiresAt: {
+    type: Date,
+    default: null
+  },
+  // Paiement Stripe (capture différée)
+  authorized: {
+    type: Boolean,
+    default: false
+  },
+  paymentIntentId: {
+    type: String,
+    default: null
+  },
+  authorizedAt: {
+    type: Date,
+    default: null
+  },
+  captureScheduledFor: {
+    type: Date,
+    default: null
+  },
+  capturedAt: {
     type: Date,
     default: null
   },

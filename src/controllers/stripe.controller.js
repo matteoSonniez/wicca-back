@@ -1,6 +1,7 @@
 exports.createCheckoutSession = async (req, res) => {
   const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
   try {
+    console.log("createCheckoutSession");
     const { amount, currency, success_url, cancel_url, metadata } = req.body;
 
     // Prépare le routage des fonds (destination charges) si l'expert a un compte Connect
@@ -26,7 +27,8 @@ exports.createCheckoutSession = async (req, res) => {
     }
 
     const paymentIntentData = {
-      metadata: metadata || {}
+      metadata: metadata || {},
+      capture_method: 'manual'
     };
 
     if (connectedAccountId) {
@@ -56,6 +58,27 @@ exports.createCheckoutSession = async (req, res) => {
       metadata: metadata || {},
       payment_intent_data: paymentIntentData
     });
+    // Sauvegarder l'id de session Stripe sur le slot
+    if (bookedSlotId && session?.id) {
+      try { await BookedSlot.findByIdAndUpdate(bookedSlotId, { $set: { stripeSessionId: session.id } }); } catch (_) {}
+    }
+
+    // Planifier une expiration programmée côté serveur à la fin du hold (in-memory)
+    try {
+      if (bookedSlotId) {
+        const slot = await BookedSlot.findById(bookedSlotId).select('holdExpiresAt');
+        if (slot?.holdExpiresAt instanceof Date) {
+          const delayMs = slot.holdExpiresAt.getTime() - Date.now();
+          if (delayMs > 0) {
+            setTimeout(async () => {
+              try {
+                await stripe.checkout.sessions.expire(session.id);
+              } catch (_) {}
+            }, delayMs);
+          }
+        }
+      }
+    } catch (_) {}
     return res.json({ url: session.url });
   } catch (err) {
     return res.status(500).json({ message: err.message });
@@ -78,44 +101,57 @@ exports.webhook = async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  console.log('Type d\'événement Stripe reçu :', event.type);
-  // Traiter les événements pertinents
-  if (event.type === 'checkout.session.completed') {
-    // Paiement réussi
-    console.log("payement réussi");
+  // Gestion des événements Stripe
+  if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+    // Paiement confirmé mais capture manuelle -> status requires_capture
     const session = event.data.object;
-    console.log("session.metadata :", session.metadata); // <--- tu dois voir ton bookedSlotId ici
     const bookedSlotId = session.metadata?.bookedSlotId;
+    const paymentIntentId = session.payment_intent;
+    if (bookedSlotId && paymentIntentId) {
+      const BookedSlot = require('../models/bookedSlot.model');
+      // Calculer prochain mardi à 13:30 (heure serveur)
+      const now = new Date();
+      const schedule = new Date(now);
+      const day = now.getDay(); // 0=dimanche..1=lundi..2=mardi..6=samedi
+      const isTodayTuesday = day === 2;
+      const before1330 = (now.getHours() < 13) || (now.getHours() === 13 && now.getMinutes() < 30);
+      const daysUntilNextTuesday = isTodayTuesday && before1330 ? 0 : ((9 - day + 7) % 7);
+      schedule.setDate(now.getDate() + daysUntilNextTuesday);
+      schedule.setHours(13, 30, 0, 0);
+      await BookedSlot.findByIdAndUpdate(
+        bookedSlotId,
+        {
+          $set: {
+            authorized: true,
+            paymentIntentId: String(paymentIntentId),
+            authorizedAt: new Date(),
+            captureScheduledFor: schedule
+          },
+          $unset: { holdExpiresAt: 1 }
+        }
+      );
+    }
+  } else if (event.type === 'payment_intent.succeeded') {
+    // Capture réussie (manuelle ou auto)
+    const paymentIntent = event.data.object;
+    const bookedSlotId = paymentIntent.metadata?.bookedSlotId;
     if (bookedSlotId) {
       const BookedSlot = require('../models/bookedSlot.model');
       await BookedSlot.findByIdAndUpdate(
         bookedSlotId,
-        { $set: { cancel: false, paid: true }, $unset: { holdExpiresAt: 1 } }
+        { $set: { paid: true, capturedAt: new Date(), authorized: false }, $unset: { holdExpiresAt: 1 } }
       );
     }
-  } else if (
-    event.type === 'checkout.session.expired' ||
-    event.type === 'checkout.session.async_payment_failed' ||
-    event.type === 'checkout.session.async_payment_expired'
-  ) {
-    // Paiement échoué ou session expirée
-    console.log("payement échoué");
-    const session = event.data.object;
-    // console.log("session.metadata :", session.metadata); // <--- ici aussi
-    const bookedSlotId = session.metadata?.bookedSlotId;
-    if (bookedSlotId) {
-      const BookedSlot = require('../models/bookedSlot.model');
-      await BookedSlot.findByIdAndUpdate(bookedSlotId, { cancel: true, paid: false });
-    }
-  } else if (event.type === 'payment_intent.payment_failed') {
-    console.log('Paiement échoué via payment_intent.payment_failed');
+  } else if (event.type === 'payment_intent.canceled') {
+    // Autorisation annulée côté Stripe (expiration ou cancel)
     const paymentIntent = event.data.object;
-    // console.log("paymentIntent.metadata :", paymentIntent.metadata); // <--- tu dois voir ton bookedSlotId ici aussi
     const bookedSlotId = paymentIntent.metadata?.bookedSlotId;
     if (bookedSlotId) {
-      console.log("bookedSlotId", bookedSlotId);
       const BookedSlot = require('../models/bookedSlot.model');
-      await BookedSlot.findByIdAndUpdate(bookedSlotId, { cancel: true, paid: false });
+      await BookedSlot.findByIdAndUpdate(
+        bookedSlotId,
+        { $set: { authorized: false }, $unset: { paymentIntentId: 1, captureScheduledFor: 1 } }
+      );
     }
   } else if (event.type === 'account.updated') {
     // Synchronise les flags Connect sur le modèle Expert

@@ -26,6 +26,30 @@ const getClientAppointmentsById = async (req, res) => {
   }
 };
 
+// GET /api/rdv/client (auth requis)
+const getClientAppointmentsMe = async (req, res) => {
+  try {
+    const me = req.user;
+    if (!me || !me._id) return res.status(403).json({ message: 'Réservé aux utilisateurs authentifiés' });
+
+    const user = await User.findById(me._id)
+      .select('rdv')
+      .populate({
+        path: 'rdv',
+        model: 'BookedSlot',
+        options: { sort: { date: -1, start: -1 } },
+        populate: [
+          { path: 'expert', model: 'Expert', select: 'firstName lastName email' },
+          { path: 'specialty', model: 'Specialty', select: 'name color' },
+        ],
+      });
+    if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé' });
+    res.json({ rdvs: user.rdv || [] });
+  } catch (error) {
+    res.status(500).json({ message: 'Erreur lors de la récupération des RDV client', error: error.message });
+  }
+};
+
 // GET /api/rdv/expert/:expertId
 const getExpertAppointmentsById = async (req, res) => {
   try {
@@ -76,6 +100,6 @@ const getExpertAppointmentsById = async (req, res) => {
   }
 };
 
-module.exports = { getClientAppointmentsById, getExpertAppointmentsById };
+module.exports = { getClientAppointmentsById, getClientAppointmentsMe, getExpertAppointmentsById };
 
 
