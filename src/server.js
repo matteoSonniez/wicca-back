@@ -8,6 +8,10 @@ const apiRouter = require('./routes');
 const cron = require('node-cron');
 //const errorHandler = require('./middlewares/errorsHandling');
 require('dotenv').config();
+// Forcer le fuseau horaire Paris pour toutes les opérations Date locales et pour le cron
+process.env.TZ = process.env.TZ || 'Europe/Paris';
+process.env.CRON_TZ = process.env.CRON_TZ || 'Europe/Paris';
+console.log('Server TZ:', process.env.TZ, 'CRON_TZ:', process.env.CRON_TZ, 'Now:', new Date().toString());
 console.log('MONGODB_URI from env:', process.env.MONGODB_USER);
 
 //mongoDb connect
@@ -39,12 +43,12 @@ app.listen(process.env.PORT, function () {
   console.log("Server launch");
 }); 
 
-// Cron: chaque mardi à 13:30 heure serveur
+// Cron: chaque mardi à 14:25 heure serveur
 try {
   const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
   const BookedSlot = require('./models/bookedSlot.model');
-  cron.schedule('30 13 * * 2', async () => {
-    console.log('[Cron] Capture des paiements autorisés (mardi 13:30)');
+  cron.schedule('25 14 * * 2', async () => {
+    console.log('[Cron] Capture des paiements autorisés (mardi 14:25)');
     const now = new Date();
     const toCapture = await BookedSlot.find({
       authorized: true,
