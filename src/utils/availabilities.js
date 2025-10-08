@@ -111,7 +111,8 @@ async function getAvailabilitiesForExpert(expertId, duration) {
     const dd = String(today.getDate()).padStart(2, '0');
     const todayStr = `${yyyy}-${mm}-${dd}`;
     if (avail.date === todayStr) {
-      nowMinutes = today.getHours() * 60 + today.getMinutes();
+      // Appliquer un délai minimal de 10 minutes avant le prochain créneau affiché
+      nowMinutes = today.getHours() * 60 + today.getMinutes() + 10;
     }
     for (const range of effectiveRanges) {
       const [h, m] = (range.start || '00:00').split(":").map(Number);
@@ -134,7 +135,9 @@ async function getAvailabilitiesForExpert(expertId, duration) {
             .filter(slot => !!slot && !slot.cancel)
             .some(slot => {
               const isActiveHold = !slot.paid && slot.holdExpiresAt && new Date(slot.holdExpiresAt) > now;
-              const blocks = slot.paid || isActiveHold;
+              const isAuthorized = slot.authorized === true; // paiement autorisé (requires_capture)
+              const isScheduledCapture = slot.captureScheduledFor && new Date(slot.captureScheduledFor) > now;
+              const blocks = (slot.paid === true) || isActiveHold || isAuthorized || isScheduledCapture;
               if (!blocks) return false;
               const slotStartMin = toMinutes(slot.start);
               const slotEndMin = toMinutes(slot.end);

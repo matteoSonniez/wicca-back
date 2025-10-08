@@ -17,10 +17,20 @@ console.log('MONGODB_URI from env:', process.env.MONGODB_USER);
 //mongoDb connect
 mongoose.set("strictQuery", false);
 mongoose.connect(
-  `mongodb+srv://${process.env.MONGODB_USER}:${process.env.MONGODB_PASSWORD}@${process.env.MONGODB_CLUSTER}.mongodb.net/?retryWrites=true&w=majority` 
-).then(() => {
-  console.log("successfully connect to database")
-}).catch(err=>console.log(err))
+  `mongodb+srv://${process.env.MONGODB_USER}:${process.env.MONGODB_PASSWORD}@${process.env.MONGODB_CLUSTER}.mongodb.net/?retryWrites=true&w=majority`
+).then(async () => {
+  console.log("successfully connect to database");
+  try {
+    // Synchronise les index (unique email inclus)
+    await Promise.all([
+      require('./models/users.model').syncIndexes(),
+      require('./models/experts.model').syncIndexes()
+    ]);
+    console.log('Indexes synchronisés');
+  } catch (e) {
+    console.warn('Erreur synchronisation des index:', e?.message);
+  }
+}).catch(err => console.log(err))
 
 //Middlewares & routes
 app.use(cors());
@@ -43,12 +53,12 @@ app.listen(process.env.PORT, function () {
   console.log("Server launch");
 }); 
 
-// Cron: chaque mardi à 14:25 heure serveur
+// Cron: chaque lundi à 10:00 heure serveur
 try {
   const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
   const BookedSlot = require('./models/bookedSlot.model');
-  cron.schedule('25 14 * * 2', async () => {
-    console.log('[Cron] Capture des paiements autorisés (mardi 14:25)');
+  cron.schedule('0 10 * * 1', async () => {
+    console.log('[Cron] Capture des paiements autorisés (lundi 10:00)');
     const now = new Date();
     const toCapture = await BookedSlot.find({
       authorized: true,

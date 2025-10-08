@@ -70,10 +70,25 @@ const bookedSlotSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  // Email de confirmation envoyé au client
+  emailConfirmationSent: {
+    type: Boolean,
+    default: false
+  },
   specialty: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Specialty',
     required: true
+  },
+  // Indique si le RDV est en visio (à distance)
+  visio: {
+    type: Boolean,
+    default: false
+  },
+  // Lieu du RDV en présentiel; null si visio
+  lieu: {
+    type: String,
+    default: null
   }
 }, { timestamps: true });
 

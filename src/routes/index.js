@@ -9,6 +9,8 @@ const stripeRouter = require("./stripe.route");
 const authRouter = require("./auth.route");
 const jaasRouter = require("./jaas.route");
 const rdvRouter = require("./rdv.route");
+const dashboardRouter = require("./dashboard.route");
+const reviewsRouter = require("./reviews.route");
 
 router.use("/experts", expertsRouter);
 router.use("/users", usersRouter);
@@ -19,5 +21,7 @@ router.use("/stripe", stripeRouter);
 router.use("/auth", authRouter);
 router.use("/jaas", jaasRouter);
 router.use("/rdv", rdvRouter);
+router.use("/dashboard", dashboardRouter);
+router.use("/reviews", reviewsRouter);
 
 module.exports = router;

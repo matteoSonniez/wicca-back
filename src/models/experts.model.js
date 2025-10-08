@@ -12,7 +12,10 @@ const expertSchema = mongoose.Schema({
   },
   email: {
     type: String,
-    required: true
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true
   },
   password: {
     type: String,
@@ -30,6 +33,10 @@ const expertSchema = mongoose.Schema({
   photoPublicId: {
     type: String,
     default: ''
+  },
+  avatard: {
+    type: String,
+    default: null
   },
   // prix_minute: {
   //   type: Number,
@@ -157,12 +164,18 @@ const expertSchema = mongoose.Schema({
   payoutsEnabled: {
     type: Boolean,
     default: false
+  },
+  isValidate: {
+    type: Boolean,
+    default: false
   }
 },
   {
     timestamps: true
   }
 )
+
+// Index unique déjà défini via le champ { unique: true } sur email
 
 expertSchema.pre('save', function (next) {
   

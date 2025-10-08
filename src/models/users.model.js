@@ -16,7 +16,10 @@ const userSchema = mongoose.Schema({
   },
   email: {
     type: String,
-    required: true
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true
   },
   phone: {
     type: String,
@@ -30,6 +33,8 @@ const userSchema = mongoose.Schema({
     timestamps: true
   }
 )
+
+// Index unique déjà défini via le champ { unique: true } sur email
 
 userSchema.pre('save', function (next) {
   if (!this.isModified("password")) {

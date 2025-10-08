@@ -1,10 +1,12 @@
 const bcrypt = require("bcrypt");
 const signJwt = require("../utils/signJwt");
 const Expert = require("../models/experts.model");
+const mongoose = require('mongoose');
 const Specialty = require('../models/specialties.model');
 const Availability = require('../models/availabilities.model');
 const { getAvailabilitiesForExpert } = require('../utils/availabilities');
 const cloudinary = require('cloudinary').v2;
+const { sendExpertWelcomeEmail } = require('../utils/mailer');
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -25,12 +27,19 @@ function getNoteMoyenneSur100(notes) {
 exports.createExpert = async (req, res, next) => {
   try {
     const { firstName, lastName, email, password, adressrdv, specialties, francais, anglais, roumain, allemand, italien, espagnol } = req.body;
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : email;
     // specialties doit être un tableau d'objets : [{ specialty, subSpecialties: [] }]
-    const expert = new Expert({ firstName, lastName, email, password, adressrdv, specialties, francais, anglais, roumain, allemand, italien, espagnol });
+    const expert = new Expert({ firstName, lastName, email: normalizedEmail, password, adressrdv, specialties, francais, anglais, roumain, allemand, italien, espagnol });
     await expert.save();
+    // Envoi d'email de bienvenue expert (asynchrone, non bloquant)
+    sendExpertWelcomeEmail({ to: expert.email, firstName: expert.firstName })
+      .catch((e) => console.warn('Erreur envoi email bienvenue expert:', e && e.message ? e.message : e));
     const token = signJwt({ id: expert._id, email: expert.email, role: 'expert' });
     res.status(201).json({ message: "Expert créé avec succès", expert, token });
   } catch (error) {
+    if (error && error.code === 11000 && error.keyPattern && error.keyPattern.email) {
+      return res.status(409).json({ message: "Cet email est déjà utilisé" });
+    }
     res.status(500).json({ message: "Erreur lors de la création de l'expert", error: error.message });
   }
 }
@@ -38,7 +47,8 @@ exports.createExpert = async (req, res, next) => {
 exports.loginExpert = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    const expert = await Expert.findOne({ email });
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : email;
+    const expert = await Expert.findOne({ email: normalizedEmail });
     if (!expert) {
       return res.status(401).json({ message: "Expert non trouvé" });
     }
@@ -128,8 +138,10 @@ exports.updateExpertPhoto = async (req, res) => {
       try { await cloudinary.uploader.destroy(expert.photoPublicId); } catch (_) {}
     }
 
+    // Si l'expert téléverse une photo personnalisée, on désactive l'avatar choisi
     expert.photoUrl = photoUrl;
     expert.photoPublicId = photoPublicId;
+    expert.avatard = null;
     await expert.save();
     res.status(200).json({ message: 'Photo mise à jour', expert });
   } catch (error) {
@@ -161,17 +173,28 @@ exports.deleteExpertPhoto = async (req, res) => {
 exports.updateExpertProfile = async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ['firstName','lastName','email','adressrdv','description','francais','anglais','roumain','allemand','italien','espagnol'];
+    const allowed = ['firstName','lastName','email','adressrdv','description','francais','anglais','roumain','allemand','italien','espagnol','avatard'];
     const update = {};
     for (const k of allowed) {
       if (Object.prototype.hasOwnProperty.call(req.body, k)) {
         update[k] = req.body[k];
       }
     }
+    // Normaliser le champ avatard: autoriser string non vide ou null
+    if (Object.prototype.hasOwnProperty.call(update, 'avatard')) {
+      if (update.avatard === '' || update.avatard === undefined) {
+        update.avatard = null;
+      } else if (typeof update.avatard !== 'string' && update.avatard !== null) {
+        return res.status(400).json({ message: 'avatard doit être une chaîne (nom de fichier) ou null' });
+      }
+    }
+    if (typeof update.email === 'string') {
+      update.email = update.email.trim().toLowerCase();
+    }
     if (Object.keys(update).length === 0) {
       return res.status(400).json({ message: 'Aucun champ valide fourni' });
     }
-    const expert = await Expert.findByIdAndUpdate(id, update, { new: true })
+    const expert = await Expert.findByIdAndUpdate(id, update, { new: true, runValidators: true, context: 'query' })
       .populate([
         { path: 'specialties.specialty' },
         { path: 'specialties.subSpecialties' }
@@ -179,6 +202,9 @@ exports.updateExpertProfile = async (req, res) => {
     if (!expert) return res.status(404).json({ message: 'Expert non trouvé' });
     res.status(200).json({ message: 'Profil mis à jour', expert });
   } catch (error) {
+    if (error && error.code === 11000 && error.keyPattern && error.keyPattern.email) {
+      return res.status(409).json({ message: "Cet email est déjà utilisé" });
+    }
     res.status(500).json({ message: "Erreur lors de la mise à jour du profil", error: error.message });
   }
 };
@@ -293,18 +319,26 @@ exports.searchExperts = async (req, res) => {
     if (!search) {
       return res.status(400).json({ message: "Le champ de recherche est requis." });
     }
-    const experts = await Expert.find({
+    const match = {
+      isValidate: true,
       $or: [
         { firstName: { $regex: search, $options: 'i' } },
         { lastName: { $regex: search, $options: 'i' } }
       ]
-    })
-    .populate([
+    };
+    const totalSearch = await Expert.countDocuments(match);
+    const expertsAgg = totalSearch > 0
+      ? await Expert.aggregate([
+          { $match: match },
+          { $sample: { size: Math.min(totalSearch, 200) } } // borne de sécurité
+        ])
+      : [];
+    const experts = await Expert.populate(expertsAgg, [
       { path: 'specialties.specialty' },
       { path: 'specialties.subSpecialties' }
     ]);
     const expertsWithNote = experts.map(e => {
-      const obj = e.toObject();
+      const obj = typeof e.toObject === 'function' ? e.toObject() : e;
       obj.noteMoyenneSur100 = getNoteMoyenneSur100(obj.notes);
       return obj;
     });
@@ -325,23 +359,32 @@ exports.findExpertsBySpecialty = async (req, res) => {
       return res.status(400).json({ message: "L'ID de la spécialité est requis." });
     }
     const query = {
-      'specialties.specialty': specialtyId
+      'specialties.specialty': mongoose.Types.ObjectId.isValid(specialtyId) ? new mongoose.Types.ObjectId(specialtyId) : specialtyId,
+      isValidate: true
     };
     if (adressrdv) {
       query.adressrdv = { $regex: adressrdv, $options: 'i' };
     }
     const total = await Expert.countDocuments(query);
     const skip = limit ? (page - 1) * limit : 0;
-    const experts = await Expert.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit || 0)
-      .populate([
-        { path: 'specialties.specialty' },
-        { path: 'specialties.subSpecialties' }
-      ]);
+    if (total === 0) {
+      if (!limit) return res.status(200).json([]);
+      return res.status(200).json({ results: [], total: 0, page, limit, hasMore: false });
+    }
+    const sampleSize = limit ? Math.min(total, skip + limit) : total;
+    const expertsAgg = total > 0
+      ? await Expert.aggregate([
+          { $match: query },
+          { $sample: { size: total } },
+          ...(limit ? [{ $skip: skip }, { $limit: limit }] : [])
+        ])
+      : [];
+    const experts = await Expert.populate(expertsAgg, [
+      { path: 'specialties.specialty' },
+      { path: 'specialties.subSpecialties' }
+    ]);
     const expertsWithNote = experts.map(e => {
-      const obj = e.toObject();
+      const obj = typeof e.toObject === 'function' ? e.toObject() : e;
       obj.noteMoyenneSur100 = getNoteMoyenneSur100(obj.notes);
       return obj;
     });
@@ -376,13 +419,20 @@ exports.findExpertsBySpecialtyName = async (req, res) => {
       return res.status(404).json({ message: "Spécialité non trouvée." });
     }
     // 2. Chercher les experts qui ont cette spécialité
-    const experts = await Expert.find({ 'specialties.specialty': specialty._id })
-      .populate([
-        { path: 'specialties.specialty' },
-        { path: 'specialties.subSpecialties' }
-      ]);
+    const matchByName = { 'specialties.specialty': specialty._id, isValidate: true };
+    const totalByName = await Expert.countDocuments(matchByName);
+    const expertsAgg = totalByName > 0
+      ? await Expert.aggregate([
+          { $match: matchByName },
+          { $sample: { size: totalByName } }
+        ])
+      : [];
+    const experts = await Expert.populate(expertsAgg, [
+      { path: 'specialties.specialty' },
+      { path: 'specialties.subSpecialties' }
+    ]);
     const expertsWithNote = experts.map(e => {
-      const obj = e.toObject();
+      const obj = typeof e.toObject === 'function' ? e.toObject() : e;
       obj.noteMoyenneSur100 = getNoteMoyenneSur100(obj.notes);
       return obj;
     });
@@ -396,6 +446,7 @@ exports.findExpertsWithFilters = async (req, res) => {
   try {
     const {
       specialtyId,
+      specialtyIds, // nouveau: tableau d'IDs de spécialités
       adressrdv,
       visio,
       onsite,
@@ -433,7 +484,17 @@ exports.findExpertsWithFilters = async (req, res) => {
     const durationPriceKey = duration ? `prix_${duration}min` : null;
 
     const specialtiesElemMatch = {};
-    if (specialtyId) specialtiesElemMatch.specialty = specialtyId;
+    // Normaliser un éventuel tableau d'IDs de spécialités
+    const selectedSpecialtyIds = Array.isArray(specialtyIds) ? specialtyIds.filter(Boolean).map(id => (
+      mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : id
+    )) : [];
+    if (specialtyId) {
+      specialtiesElemMatch.specialty = mongoose.Types.ObjectId.isValid(specialtyId)
+        ? new mongoose.Types.ObjectId(specialtyId)
+        : specialtyId;
+    } else if (selectedSpecialtyIds.length > 0) {
+      specialtiesElemMatch.specialty = { $in: selectedSpecialtyIds };
+    }
     if (visio !== undefined) {
       specialtiesElemMatch.visio = visio;
     }
@@ -472,27 +533,44 @@ exports.findExpertsWithFilters = async (req, res) => {
       query.specialties = { $elemMatch: specialtiesElemMatch };
     } else if (specialtyId) {
       // cas limite: specialtyId seul
-      query['specialties.specialty'] = specialtyId;
+      query['specialties.specialty'] = mongoose.Types.ObjectId.isValid(specialtyId)
+        ? new mongoose.Types.ObjectId(specialtyId)
+        : specialtyId;
+    } else if (selectedSpecialtyIds.length > 0) {
+      // cas limite: liste d'IDs seulement
+      query['specialties.specialty'] = { $in: selectedSpecialtyIds };
     }
 
     // Compte total après filtres Mongo (hors disponibilité)
+    // Toujours retourner uniquement les experts validés publiquement
+    query.isValidate = true;
     const totalAfterBasicFilters = await Expert.countDocuments(query);
 
     // Pagination DB
     const skip = limit ? (page - 1) * limit : 0;
-    let expertsPage = await Expert.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit || 0)
-      .populate([{ path: 'specialties.specialty' }]);
-
-    // Récupération des dispos + application du filtre de disponibilité SUR LA PAGE COURANTE uniquement
+    // Page d'experts aléatoire selon les filtres
     const dForAvail = duree || 30;
+    if (totalAfterBasicFilters === 0) {
+      const empty = [];
+      if (!limit) return res.status(200).json(empty);
+      return res.status(200).json({ results: empty, total: 0, page, limit, hasMore: false });
+    }
+    const sampleSizePage = limit ? Math.min(totalAfterBasicFilters, skip + limit) : totalAfterBasicFilters;
+    let expertsPage = totalAfterBasicFilters > 0
+      ? await Expert.aggregate([
+          { $match: query },
+          { $sample: { size: sampleSizePage } },
+          ...(limit ? [{ $skip: skip }, { $limit: limit }] : [])
+        ])
+      : [];
+    expertsPage = await Expert.populate(expertsPage, [{ path: 'specialties.specialty' }]);
+
     let expertsWithAvail = await Promise.all(
       expertsPage.map(async expert => {
         const availabilities = await getAvailabilitiesForExpert(expert._id, dForAvail);
+        const expertObj = typeof expert.toObject === 'function' ? expert.toObject() : expert;
         return {
-          ...expert.toObject(),
+          ...expertObj,
           availabilities,
           noteMoyenneSur100: getNoteMoyenneSur100(expert.notes)
         };
@@ -577,6 +655,9 @@ exports.findExpertsWithFilters = async (req, res) => {
         if (specialtyId) {
           const match = specs.find(s => String(s.specialty) === String(specialtyId) && typeof s[key] === 'number');
           price = match ? match[key] : null;
+        } else if (selectedSpecialtyIds.length > 0) {
+          const matchAnySelected = specs.find(s => selectedSpecialtyIds.map(String).includes(String(s.specialty)) && typeof s[key] === 'number');
+          price = matchAnySelected ? matchAnySelected[key] : null;
         } else {
           const matchAny = specs.find(s => typeof s[key] === 'number');
           price = matchAny ? matchAny[key] : null;
@@ -637,16 +718,21 @@ exports.getExperts = async (req, res) => {
     const parsedLimit = parseInt(req.query.limit, 10);
     const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 100)) : 15;
 
-    const experts = await Expert.find({})
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .populate([
-        { path: 'specialties.specialty' },
-        { path: 'specialties.subSpecialties' }
-      ]);
+    const totalAll = await Expert.countDocuments({ isValidate: true });
+    const size = Math.min(limit, Math.max(0, totalAll));
+    const expertsAgg = size > 0
+      ? await Expert.aggregate([
+          { $match: { isValidate: true } },
+          { $sample: { size } }
+        ])
+      : [];
+    const experts = await Expert.populate(expertsAgg, [
+      { path: 'specialties.specialty' },
+      { path: 'specialties.subSpecialties' }
+    ]);
 
     const payload = experts.map(e => {
-      const obj = e.toObject();
+      const obj = (e && typeof e.toObject === 'function') ? e.toObject() : e;
       obj.noteMoyenneSur100 = getNoteMoyenneSur100(obj.notes);
       return obj;
     });

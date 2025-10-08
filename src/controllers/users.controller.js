@@ -1,15 +1,23 @@
 const bcrypt = require("bcrypt");
 const User = require("../models/users.model");
 const signJwt = require("../utils/signJwt");
+const { sendWelcomeEmail } = require("../utils/mailer");
 
 exports.createUser = async (req, res, next) => {
   try {
     const { firstName, lastName, password, email, phone } = req.body;
-    const user = new User({ firstName, lastName, password, email, phone });
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : email;
+    const user = new User({ firstName, lastName, password, email: normalizedEmail, phone });
     await user.save();
+    // Envoi d'un email de bienvenue asynchrone (non bloquant pour la réponse API)
+    sendWelcomeEmail({ to: user.email, firstName: user.firstName })
+      .catch((e) => console.warn('Erreur envoi email bienvenue:', e?.message));
     const token = signJwt({ id: user._id, email: user.email, role: 'user' });
     res.status(201).json({ message: "Utilisateur créé avec succès", user, token });
   } catch (error) {
+    if (error && error.code === 11000 && error.keyPattern && error.keyPattern.email) {
+      return res.status(409).json({ message: "Cet email est déjà utilisé" });
+    }
     res.status(500).json({ message: "Erreur lors de la création de l'utilisateur", error: error.message });
   }
 }
@@ -17,7 +25,8 @@ exports.createUser = async (req, res, next) => {
 exports.loginUser = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : email;
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
       return res.status(401).json({ message: "Utilisateur non trouvé" });
     }

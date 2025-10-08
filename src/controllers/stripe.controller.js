@@ -10,26 +10,46 @@ exports.createCheckoutSession = async (req, res) => {
 
     let connectedAccountId = null;
     let applicationFeeAmount = null;
+    let bookedSlotDoc = null;
 
     // Tente de retrouver l'expert via le bookedSlotId (recommandé)
     const bookedSlotId = metadata?.bookedSlotId;
     if (bookedSlotId) {
-      const slot = await BookedSlot.findById(bookedSlotId).populate('expert');
-      if (slot && slot.expert && slot.expert.stripeAccountId) {
-        connectedAccountId = slot.expert.stripeAccountId;
+      bookedSlotDoc = await BookedSlot.findById(bookedSlotId).populate('expert');
+      if (bookedSlotDoc && bookedSlotDoc.expert && bookedSlotDoc.expert.stripeAccountId) {
+        connectedAccountId = bookedSlotDoc.expert.stripeAccountId;
       }
     }
 
-    // Calcule la commission plateforme (par défaut 15%)
-    const feePercent = Number(process.env.STRIPE_PLATFORM_FEE_PERCENT || 45);
-    if (Number.isFinite(feePercent) && feePercent >= 0) {
-      applicationFeeAmount = Math.round((Number(amount || 0)) * (feePercent / 100));
+    // Commission dynamique: 30% si premier RDV payé entre ce client et cet expert, sinon 10%
+    let feePercent = 10;
+    try {
+      if (bookedSlotDoc) {
+        const expertIdForFee = (bookedSlotDoc.expert && (bookedSlotDoc.expert._id || bookedSlotDoc.expert)) || null;
+        const clientIdForFee = bookedSlotDoc.client || null;
+        if (expertIdForFee && clientIdForFee) {
+          const previousPaid = await BookedSlot.exists({
+            expert: expertIdForFee,
+            client: clientIdForFee,
+            paid: true,
+            cancel: { $ne: true }
+          });
+          feePercent = previousPaid ? 10 : 30;
+        }
+      }
+    } catch (_) {
+      feePercent = 10;
     }
+    applicationFeeAmount = Math.round((Number(amount || 0)) * (feePercent / 100));
 
     const paymentIntentData = {
       metadata: metadata || {},
       capture_method: 'manual'
     };
+    // Ajoute la commission choisie pour traçabilité
+    try {
+      paymentIntentData.metadata = Object.assign({}, paymentIntentData.metadata, { feePercent: String(feePercent) });
+    } catch (_) {}
 
     if (connectedAccountId) {
       paymentIntentData.application_fee_amount = applicationFeeAmount || 0;
@@ -109,18 +129,43 @@ exports.webhook = async (req, res) => {
     const paymentIntentId = session.payment_intent;
     if (bookedSlotId && paymentIntentId) {
       const BookedSlot = require('../models/bookedSlot.model');
-      // Calculer PROCHAIN mardi 14:25 (jamais dans le passé)
+      // Calculer PROCHAIN lundi 10:00 (jamais dans le passé)
       const now = new Date();
-      const schedule = new Date(now);
-      const day = now.getDay(); // 0=dimanche..1=lundi..2=mardi..6=samedi
-      const desiredDay = 2; // mardi
+      let schedule = new Date(now);
+      const day = now.getDay(); // 0=dimanche..1=lundi..6=samedi
+      const desiredDay = 1; // lundi
       let daysAhead = (desiredDay - day + 7) % 7; // 0..6
       schedule.setDate(now.getDate() + daysAhead);
-      schedule.setHours(14, 25, 0, 0);
+      schedule.setHours(10, 0, 0, 0);
       if (schedule <= now) {
-        // si on est déjà mardi 14:25 passé, bascule mardi prochain
+        // si on est déjà lundi 10:00 passé, bascule lundi prochain
         schedule.setDate(schedule.getDate() + 7);
       }
+
+      // S'assurer que la capture est APRES le RDV (date/heure du rendez-vous)
+      try {
+        const slot = await BookedSlot.findById(bookedSlotId).select('date start');
+        if (slot && slot.date) {
+          const rdvDateTime = new Date(slot.date);
+          try {
+            const [hh, mm] = String(slot.start || '00:00').split(':').map(Number);
+            rdvDateTime.setHours(Number.isFinite(hh) ? hh : 0, Number.isFinite(mm) ? mm : 0, 0, 0);
+          } catch (_) {}
+
+          if (schedule <= rdvDateTime) {
+            // Recalcule: premier lundi 10:00 STRICTEMENT après la date/heure du RDV
+            const base = new Date(rdvDateTime);
+            const baseDay = base.getDay(); // 0..6
+            let da = (1 - baseDay + 7) % 7; // vers lundi
+            base.setDate(base.getDate() + da);
+            base.setHours(10, 0, 0, 0);
+            if (base <= rdvDateTime) {
+              base.setDate(base.getDate() + 7);
+            }
+            schedule = base;
+          }
+        }
+      } catch (_) {}
       await BookedSlot.findByIdAndUpdate(
         bookedSlotId,
         {

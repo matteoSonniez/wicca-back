@@ -61,7 +61,9 @@ module.exports.bookSlot = async (req, res) => {
       if (!slot) continue; // slot supprimé (TTL) ou introuvable
       if (slot.cancel) continue; // annulé
       const isActiveHold = !slot.paid && slot.holdExpiresAt && slot.holdExpiresAt > now;
-      const blocks = slot.paid || isActiveHold;
+      const isAuthorized = slot.authorized === true; // paiement autorisé en attente de capture
+      const isScheduledCapture = slot.captureScheduledFor && slot.captureScheduledFor > now;
+      const blocks = slot.paid || isActiveHold || isAuthorized || isScheduledCapture;
       if (!blocks) continue; // hold expiré -> ne bloque pas
       // Si le créneau demandé chevauche un slot bloquant
       if (!(end <= slot.start || start >= slot.end)) {
@@ -72,6 +74,19 @@ module.exports.bookSlot = async (req, res) => {
     // Ajouter le créneau réservé
     // Créer un hold temporaire qui expirera automatiquement si pas payé
     const HOLD_MINUTES = 2;
+    // Déterminer visio/lieu selon la demande du front
+    // Convention: si req.body.visio === true => rendez-vous à distance, lieu = null
+    // Sinon si req.body.lieu est fourni (string non vide) => présentiel
+    let visio = false;
+    let lieu = null;
+    if (req.body && req.body.visio === true) {
+      visio = true;
+      lieu = null;
+    } else if (req.body && typeof req.body.lieu === 'string' && req.body.lieu.trim().length > 0) {
+      visio = false;
+      lieu = req.body.lieu.trim();
+    }
+
     const newSlot = new BookedSlot({
       start,
       end,
@@ -83,7 +98,9 @@ module.exports.bookSlot = async (req, res) => {
       paid: false,
       holdExpiresAt: new Date(Date.now() + HOLD_MINUTES * 60 * 1000),
       specialty,
-      price: computedPrice
+      price: computedPrice,
+      visio,
+      lieu
     });
     await newSlot.save();
     availability.bookedSlots.push(newSlot._id);
