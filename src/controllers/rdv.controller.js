@@ -84,6 +84,7 @@ const getExpertAppointmentsById = async (req, res) => {
         if (endDateTime <= now && !rdv.ended) {
           idsToMarkEnded.push(rdv._id);
           rdv.ended = true; // refléter immédiatement dans la réponse
+          // L'email de fin est désormais géré par le cron (server.js)
         }
       } catch (_) {
         // ignorer un rdv mal formé
@@ -93,6 +94,8 @@ const getExpertAppointmentsById = async (req, res) => {
     if (idsToMarkEnded.length > 0) {
       await BookedSlot.updateMany({ _id: { $in: idsToMarkEnded } }, { $set: { ended: true } });
     }
+
+    // Envoi email fin RDV supprimé ici (cron dédié)
 
     res.json({ rdvs });
   } catch (error) {
@@ -165,7 +168,7 @@ const sendAppointmentConfirmation = async (req, res) => {
       return res.status(200).json({ message: 'Déjà envoyé' });
     }
 
-    const { sendAppointmentConfirmationEmail } = require('../utils/mailer');
+    const { sendAppointmentConfirmationEmail, sendExpertAppointmentNotificationEmail } = require('../utils/mailer');
     const safeFirst = slot.client?.firstName || '';
     const expertName = [slot.expert?.firstName, slot.expert?.lastName].filter(Boolean).join(' ').trim();
     const dateStr = new Date(slot.date).toLocaleDateString('fr-FR');
@@ -184,6 +187,24 @@ const sendAppointmentConfirmation = async (req, res) => {
       visio,
       jaasLink: link
     });
+    // Envoi à l'expert si pas déjà envoyé
+    if (slot.expert && slot.expert.email && slot.expertNotificationSent !== true) {
+      const clientName = [slot.client?.firstName, slot.client?.lastName].filter(Boolean).join(' ').trim();
+      try {
+        await sendExpertAppointmentNotificationEmail({
+          to: slot.expert.email,
+          expertFirstName: slot.expert.firstName || '',
+          clientName,
+          dateStr,
+          heureStr,
+          visio,
+          jaasLink: link
+        });
+        slot.expertNotificationSent = true;
+      } catch (e) {
+        // ne bloque pas la réponse
+      }
+    }
 
     slot.emailConfirmationSent = true;
     await slot.save();

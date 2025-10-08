@@ -75,6 +75,16 @@ const bookedSlotSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Email de notification envoyé à l'expert
+  expertNotificationSent: {
+    type: Boolean,
+    default: false
+  },
+  // Email de fin de rendez-vous envoyé au client (invitation à laisser un avis)
+  emailEndedSent: {
+    type: Boolean,
+    default: false
+  },
   specialty: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Specialty',

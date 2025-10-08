@@ -2,7 +2,7 @@ const bcrypt = require("bcrypt");
 const User = require("../models/users.model");
 const Expert = require("../models/experts.model");
 const SignupVerification = require("../models/signupVerification.model");
-const { sendVerificationCodeEmail } = require("../utils/mailer");
+const { sendVerificationCodeEmail, sendWelcomeEmail, sendExpertWelcomeEmail } = require("../utils/mailer");
 const signJwt = require("../utils/signJwt");
 
 exports.login = async (req, res) => {
@@ -117,6 +117,9 @@ exports.verifySignupCode = async (req, res) => {
         phone: data.phone
       });
       await user.save();
+      // Email de bienvenue (asynchrone, non bloquant)
+      sendWelcomeEmail({ to: user.email, firstName: user.firstName })
+        .catch((e) => console.warn('Erreur envoi email bienvenue user:', e && e.message ? e.message : e));
       await SignupVerification.deleteOne({ _id: verif._id });
       const token = signJwt({ id: user._id, email: user.email, role: 'user' });
       return res.status(201).json({ message: 'Utilisateur créé', user, token });
@@ -136,6 +139,9 @@ exports.verifySignupCode = async (req, res) => {
         espagnol: !!data.espagnol
       });
       await expert.save();
+      // Email de bienvenue expert (asynchrone, non bloquant)
+      sendExpertWelcomeEmail({ to: expert.email, firstName: expert.firstName })
+        .catch((e) => console.warn('Erreur envoi email bienvenue expert:', e && e.message ? e.message : e));
       await SignupVerification.deleteOne({ _id: verif._id });
       const token = signJwt({ id: expert._id, email: expert.email, role: 'expert' });
       return res.status(201).json({ message: 'Expert créé', expert, token });

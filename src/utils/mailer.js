@@ -334,3 +334,92 @@ module.exports.sendAppointmentConfirmationEmail = async function({ to, clientFir
 }
 
 
+// Email de notification à l'expert lors d'une nouvelle réservation
+// Params: { to, expertFirstName, clientName, dateStr, heureStr, visio, jaasLink }
+module.exports.sendExpertAppointmentNotificationEmail = async function({ to, expertFirstName, clientName, dateStr, heureStr, visio, jaasLink }) {
+  const subject = 'Nouveau rendez-vous Wicca';
+  const safeFirst = expertFirstName || '';
+  const link = visio ? (jaasLink || '') : '';
+  const baseUrl = (process.env.APP_BASE_URL || process.env.FRONT_BASE_URL || process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://wicca.fr').replace(/\/$/, '');
+  const dashboardUrl = `${baseUrl}/dashboard`;
+
+  const text = [
+    'Objet : Nouveau rendez-vous Wicca',
+    '',
+    `Bonjour ${safeFirst || '(Prénom)'},`,
+    '',
+    'Vous avez un nouveau rendez-vous.',
+    `Client : ${clientName || ''}`,
+    `Date & heure : ${dateStr} ${heureStr}`,
+    `Format : ${visio ? 'Séance en visio' : 'Séance en présentiel'}`,
+    visio ? `Lien visio (client) : ${link}` : null,
+    '',
+    `Gérer vos rendez-vous : ${dashboardUrl}`,
+    '',
+    'À très bientôt,',
+    'L’équipe Wicca'
+  ].filter(Boolean).join('\n');
+
+  const html = `
+    <div style="font-family:Inter,Arial,sans-serif;line-height:1.7;color:#111;padding:8px 0">
+      <h2 style="margin:0 0 12px;font-size:22px">Nouveau rendez-vous Wicca</h2>
+      <p>Bonjour ${safeFirst || '(Prénom)'},</p>
+      <p>Vous avez un nouveau rendez-vous :</p>
+      <p>
+        <strong>Client :</strong> ${clientName || ''}<br/>
+        <strong>Date & heure :</strong> ${dateStr} ${heureStr}<br/>
+        <strong>Format :</strong> ${visio ? 'Séance en visio' : 'Séance en présentiel'}
+        ${visio && jaasLink ? `<br/><strong>Lien visio (client) :</strong> <a href="${jaasLink}" target="_blank" rel="noopener">Voir la page RDV</a>` : ''}
+      </p>
+      <div style="margin:18px 0 22px">
+        <a href="${dashboardUrl}" target="_blank" rel="noopener"
+           style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:600">
+          Accéder à votre tableau de bord
+        </a>
+      </div>
+      <p style="margin:20px 0">À très bientôt,<br/>L’équipe Wicca</p>
+    </div>
+  `;
+
+  return sendEmail({ to, subject, text, html });
+}
+
+// Email de fin de rendez-vous pour le client avec CTA avis
+// Params: { to, clientFirstName, expertName, reviewLink }
+module.exports.sendAppointmentEndedEmail = async function({ to, clientFirstName, expertName, reviewLink }) {
+  const subject = 'Merci pour votre rendez-vous — laissez un avis';
+  const safeFirst = clientFirstName || '';
+  const link = (reviewLink || '').replace(/\s+/g, '');
+
+  const text = [
+    'Objet : Merci pour votre rendez-vous — laissez un avis',
+    '',
+    `Bonjour ${safeFirst || '(Prénom)'},`,
+    '',
+    `Votre rendez-vous avec ${expertName || 'votre expert'} est terminé.`,
+    'Votre avis compte pour la communauté. Quelques mots suffisent pour aider les prochains clients.',
+    '',
+    `Laisser un avis : ${link}`,
+    '',
+    'Merci pour votre confiance.',
+    'L’équipe Wicca'
+  ].join('\n');
+
+  const html = `
+    <div style="font-family:Inter,Arial,sans-serif;line-height:1.7;color:#111;padding:8px 0">
+      <h2 style="margin:0 0 12px;font-size:22px">Merci pour votre rendez-vous</h2>
+      <p>Bonjour ${safeFirst || '(Prénom)'},</p>
+      <p>Votre rendez-vous avec <strong>${expertName || 'votre expert'}</strong> est maintenant terminé.</p>
+      <p>Votre avis compte pour la communauté. Quelques mots suffisent pour aider les prochains clients.</p>
+      <div style="margin:18px 0 22px">
+        <a href="${link}" target="_blank" rel="noopener"
+           style="display:inline-block;background:#e91e63;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:600">
+          Laissez un avis à l’expert
+        </a>
+      </div>
+      <p style="margin:20px 0">Merci pour votre confiance,<br/>L’équipe Wicca</p>
+    </div>
+  `;
+
+  return sendEmail({ to, subject, text, html });
+}

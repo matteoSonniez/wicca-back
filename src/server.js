@@ -57,6 +57,7 @@ app.listen(process.env.PORT, function () {
 try {
   const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
   const BookedSlot = require('./models/bookedSlot.model');
+  const { sendAppointmentEndedEmail } = require('./utils/mailer');
   cron.schedule('0 10 * * 1', async () => {
     console.log('[Cron] Capture des paiements autorisés (lundi 10:00)');
     const now = new Date();
@@ -73,6 +74,56 @@ try {
       } catch (e) {
         console.error('[Cron] Echec capture', slot.paymentIntentId, e?.message);
       }
+    }
+  }, {
+    timezone: process.env.CRON_TZ || 'Europe/Paris'
+  });
+
+  // Cron: toutes les 5 minutes, envoie l'email de fin de RDV aux clients dont la séance est terminée
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const now = new Date();
+      const candidates = await BookedSlot.find({
+        emailEndedSent: { $ne: true },
+        cancel: { $ne: true },
+        date: { $lte: now }
+      })
+        .select('start end date client expert emailEndedSent ended')
+        .populate({ path: 'client', model: 'User', select: 'firstName lastName email' })
+        .populate({ path: 'expert', model: 'Expert', select: 'firstName lastName email' })
+        .limit(500);
+
+      const baseUrl = (process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
+
+      for (const slot of candidates) {
+        try {
+          const d = new Date(slot.date);
+          const timeStr = typeof slot.end === 'string' && slot.end ? slot.end : (typeof slot.start === 'string' ? slot.start : '00:00');
+          const [hhStr = '0', mmStr = '0'] = String(timeStr).split(':');
+          const hh = parseInt(hhStr || '0', 10) || 0;
+          const mm = parseInt(mmStr || '0', 10) || 0;
+          const endDt = new Date(d);
+          endDt.setHours(hh, mm, 0, 0);
+
+          if (endDt <= now && slot.client && slot.client.email && slot.expert) {
+            const expertName = [slot.expert.firstName, slot.expert.lastName].filter(Boolean).join(' ').trim();
+            const reviewLink = `${baseUrl}/rdv?review=${encodeURIComponent(String(slot._id))}`;
+            await sendAppointmentEndedEmail({
+              to: slot.client.email,
+              clientFirstName: slot.client.firstName || '',
+              expertName,
+              reviewLink
+            });
+            slot.emailEndedSent = true;
+            slot.ended = true;
+            await slot.save();
+          }
+        } catch (e) {
+          // on continue avec les autres slots
+        }
+      }
+    } catch (e) {
+      console.warn('[Cron] Erreur envoi emails fin RDV:', e?.message);
     }
   }, {
     timezone: process.env.CRON_TZ || 'Europe/Paris'
