@@ -26,10 +26,31 @@ function getNoteMoyenneSur100(notes) {
 
 exports.createExpert = async (req, res, next) => {
   try {
-    const { firstName, lastName, email, password, adressrdv, specialties, francais, anglais, roumain, allemand, italien, espagnol } = req.body;
+    const { firstName, lastName, email, password, adressrdv, specialties, francais, anglais, roumain, allemand, italien, espagnol, termsAccepted } = req.body;
     const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : email;
+    // Valider acceptation des CGU
+    if (termsAccepted !== true) {
+      return res.status(400).json({ message: "Vous devez accepter les conditions d’utilisation pour créer un compte expert." });
+    }
     // specialties doit être un tableau d'objets : [{ specialty, subSpecialties: [] }]
-    const expert = new Expert({ firstName, lastName, email: normalizedEmail, password, adressrdv, specialties, francais, anglais, roumain, allemand, italien, espagnol });
+    const { TERMS_EXPERTS_VERSION } = require('../utils/terms');
+    const expert = new Expert({
+      firstName,
+      lastName,
+      email: normalizedEmail,
+      password,
+      adressrdv,
+      specialties,
+      francais,
+      anglais,
+      roumain,
+      allemand,
+      italien,
+      espagnol,
+      termsAccepted: true,
+      termsAcceptedAt: new Date(),
+      termsVersion: TERMS_EXPERTS_VERSION
+    });
     await expert.save();
     // Envoi d'email de bienvenue expert (asynchrone, non bloquant)
     sendExpertWelcomeEmail({ to: expert.email, firstName: expert.firstName })

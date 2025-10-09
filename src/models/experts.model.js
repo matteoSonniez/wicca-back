@@ -165,6 +165,19 @@ const expertSchema = mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Acceptation des CGU Experts
+  termsAccepted: {
+    type: Boolean,
+    default: false
+  },
+  termsAcceptedAt: {
+    type: Date,
+    default: null
+  },
+  termsVersion: {
+    type: String,
+    default: ''
+  },
   isValidate: {
     type: Boolean,
     default: false

@@ -36,12 +36,15 @@ exports.login = async (req, res) => {
 // Body: { role: 'user'|'expert', email, firstName, lastName, password, ...autres champs }
 exports.requestSignupCode = async (req, res) => {
   try {
-    const { role, email } = req.body || {};
+    const { role, email, termsAccepted } = req.body || {};
     if (!role || !['user','expert'].includes(role)) {
       return res.status(400).json({ message: 'role invalide' });
     }
     if (typeof email !== 'string' || !email.trim()) {
       return res.status(400).json({ message: 'email requis' });
+    }
+    if (role === 'expert' && termsAccepted !== true) {
+      return res.status(400).json({ message: "Vous devez accepter les conditions d’utilisation pour continuer." });
     }
     const normalizedEmail = email.trim().toLowerCase();
     // refuser si déjà existant
@@ -56,7 +59,8 @@ exports.requestSignupCode = async (req, res) => {
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
-    const payload = { ...req.body, email: normalizedEmail };
+    const { TERMS_EXPERTS_VERSION } = require('../utils/terms');
+    const payload = { ...req.body, email: normalizedEmail, ...(role === 'expert' ? { termsAccepted: true, termsAcceptedAt: new Date(), termsVersion: TERMS_EXPERTS_VERSION } : {}) };
     // upsert sur (email, role)
     await SignupVerification.findOneAndUpdate(
       { email: normalizedEmail, role },
@@ -124,6 +128,11 @@ exports.verifySignupCode = async (req, res) => {
       const token = signJwt({ id: user._id, email: user.email, role: 'user' });
       return res.status(201).json({ message: 'Utilisateur créé', user, token });
     } else {
+      // Exiger la présence d'une acceptation en payload (ajoutée lors du request-code)
+      if (data.termsAccepted !== true) {
+        return res.status(400).json({ message: "Acceptation des conditions manquante ou invalide." });
+      }
+      const { TERMS_EXPERTS_VERSION } = require('../utils/terms');
       const expert = new Expert({
         firstName: data.firstName,
         lastName: data.lastName,
@@ -136,7 +145,10 @@ exports.verifySignupCode = async (req, res) => {
         roumain: !!data.roumain,
         allemand: !!data.allemand,
         italien: !!data.italien,
-        espagnol: !!data.espagnol
+        espagnol: !!data.espagnol,
+        termsAccepted: true,
+        termsAcceptedAt: data.termsAcceptedAt ? new Date(data.termsAcceptedAt) : new Date(),
+        termsVersion: data.termsVersion || TERMS_EXPERTS_VERSION
       });
       await expert.save();
       // Email de bienvenue expert (asynchrone, non bloquant)
