@@ -24,7 +24,7 @@ exports.getExpertMonthlyAppointments = async (req, res) => {
     })
       .sort({ date: -1, start: -1 })
       .populate({ path: 'client', model: 'User', select: 'firstName lastName email' })
-      .populate({ path: 'expert', model: 'Expert', select: 'firstName lastName email' })
+      .populate({ path: 'expert', model: 'Expert', select: 'firstName email' })
       .populate({ path: 'specialty', model: 'Specialty', select: 'name color' });
 
     return res.status(200).json({ rdvs });

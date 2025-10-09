@@ -60,7 +60,7 @@ exports.getMyReviews = async (req, res) => {
     if (!req.user) return res.status(401).json({ message: 'Authentification requise' });
     const reviews = await Review.find({ client: req.user._id })
       .sort({ createdAt: -1 })
-      .populate('expert', 'firstName lastName');
+      .populate('expert', 'firstName');
     return res.json(reviews);
   } catch (err) {
     return res.status(500).json({ message: 'Erreur serveur', error: err.message });

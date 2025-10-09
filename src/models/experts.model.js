@@ -6,10 +6,6 @@ const expertSchema = mongoose.Schema({
     type: String,
     required: true
   },
-  lastName: {
-    type: String,
-    required: true
-  },
   email: {
     type: String,
     required: true,
@@ -20,6 +16,11 @@ const expertSchema = mongoose.Schema({
   password: {
     type: String,
     required: true
+  },
+  siret: {
+    type: String,
+    trim: true,
+    default: ''
   },
   description: {
     type: String,

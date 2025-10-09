@@ -33,7 +33,7 @@ exports.login = async (req, res) => {
 }
 
 // POST /auth/signup/request-code
-// Body: { role: 'user'|'expert', email, firstName, lastName, password, ...autres champs }
+// Body: { role: 'user'|'expert', email, firstName, password, ...autres champs }
 exports.requestSignupCode = async (req, res) => {
   try {
     const { role, email, termsAccepted } = req.body || {};
@@ -115,7 +115,7 @@ exports.verifySignupCode = async (req, res) => {
     if (role === 'user') {
       const user = new User({
         firstName: data.firstName,
-        lastName: data.lastName,
+        lastName: data.lastName || '',
         email: data.email,
         password: data.password,
         phone: data.phone
@@ -135,10 +135,10 @@ exports.verifySignupCode = async (req, res) => {
       const { TERMS_EXPERTS_VERSION } = require('../utils/terms');
       const expert = new Expert({
         firstName: data.firstName,
-        lastName: data.lastName,
         email: data.email,
         password: data.password,
         adressrdv: data.adressrdv,
+        siret: data.siret || '',
         specialties: data.specialties,
         francais: !!data.francais,
         anglais: !!data.anglais,

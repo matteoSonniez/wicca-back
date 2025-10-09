@@ -15,7 +15,7 @@ const getClientAppointmentsById = async (req, res) => {
         model: 'BookedSlot',
         options: { sort: { date: -1, start: -1 } },
         populate: [
-          { path: 'expert', model: 'Expert', select: 'firstName lastName email photoUrl avatard' },
+          { path: 'expert', model: 'Expert', select: 'firstName email photoUrl avatard' },
           { path: 'specialty', model: 'Specialty', select: 'name color' },
         ],
       });
@@ -39,7 +39,7 @@ const getClientAppointmentsMe = async (req, res) => {
         model: 'BookedSlot',
         options: { sort: { date: -1, start: -1 } },
         populate: [
-          { path: 'expert', model: 'Expert', select: 'firstName lastName email photoUrl avatard' },
+          { path: 'expert', model: 'Expert', select: 'firstName email photoUrl avatard' },
           { path: 'specialty', model: 'Specialty', select: 'name color' },
         ],
       });
@@ -113,7 +113,7 @@ const getAppointmentByStripeSession = async (req, res) => {
     if (!me || !me._id) return res.status(403).json({ message: 'Réservé aux utilisateurs authentifiés' });
 
     const slot = await BookedSlot.findOne({ stripeSessionId: sessionId })
-      .populate({ path: 'expert', model: 'Expert', select: 'firstName lastName email adressrdv' })
+      .populate({ path: 'expert', model: 'Expert', select: 'firstName email adressrdv' })
       .populate({ path: 'specialty', model: 'Specialty', select: 'name color' });
 
     if (!slot) return res.status(404).json({ message: 'RDV introuvable' });
@@ -135,7 +135,7 @@ const getAppointmentById = async (req, res) => {
     if (!me || !me._id) return res.status(403).json({ message: 'Réservé aux utilisateurs authentifiés' });
 
     const slot = await BookedSlot.findById(slotId)
-      .populate({ path: 'expert', model: 'Expert', select: 'firstName lastName email adressrdv' })
+      .populate({ path: 'expert', model: 'Expert', select: 'firstName email adressrdv' })
       .populate({ path: 'specialty', model: 'Specialty', select: 'name color' });
 
     if (!slot) return res.status(404).json({ message: 'RDV introuvable' });
@@ -157,7 +157,7 @@ const sendAppointmentConfirmation = async (req, res) => {
     if (!slotId) return res.status(400).json({ message: 'slotId requis' });
 
     const slot = await BookedSlot.findById(slotId)
-      .populate({ path: 'expert', model: 'Expert', select: 'firstName lastName email' })
+      .populate({ path: 'expert', model: 'Expert', select: 'firstName email' })
       .populate({ path: 'specialty', model: 'Specialty', select: 'name color' })
       .populate({ path: 'client', model: 'User', select: 'firstName lastName email' });
     if (!slot) return res.status(404).json({ message: 'RDV introuvable' });
@@ -170,7 +170,7 @@ const sendAppointmentConfirmation = async (req, res) => {
 
     const { sendAppointmentConfirmationEmail, sendExpertAppointmentNotificationEmail } = require('../utils/mailer');
     const safeFirst = slot.client?.firstName || '';
-    const expertName = [slot.expert?.firstName, slot.expert?.lastName].filter(Boolean).join(' ').trim();
+    const expertName = (slot.expert?.firstName || '').trim();
     const dateStr = new Date(slot.date).toLocaleDateString('fr-FR');
     const heureStr = `${slot.start} - ${slot.end}`;
     const visio = slot.visio === true;

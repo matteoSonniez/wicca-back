@@ -8,5 +8,7 @@ router.post('/create', specialtiesController.createSpecialty);
 router.get('/get-all', specialtiesController.getAllSpecialties);
 // Route pour rechercher des spécialités par nom
 router.post('/search', specialtiesController.searchSpecialties);
+// Route pour mettre à jour une spécialité
+router.patch('/:id', specialtiesController.updateSpecialty);
 
 module.exports = router; 

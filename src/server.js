@@ -90,7 +90,7 @@ try {
       })
         .select('start end date client expert emailEndedSent ended')
         .populate({ path: 'client', model: 'User', select: 'firstName lastName email' })
-        .populate({ path: 'expert', model: 'Expert', select: 'firstName lastName email' })
+        .populate({ path: 'expert', model: 'Expert', select: 'firstName email' })
         .limit(500);
 
       const baseUrl = (process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
@@ -106,7 +106,7 @@ try {
           endDt.setHours(hh, mm, 0, 0);
 
           if (endDt <= now && slot.client && slot.client.email && slot.expert) {
-            const expertName = [slot.expert.firstName, slot.expert.lastName].filter(Boolean).join(' ').trim();
+            const expertName = (slot.expert.firstName || '').trim();
             const reviewLink = `${baseUrl}/rdv?review=${encodeURIComponent(String(slot._id))}`;
             await sendAppointmentEndedEmail({
               to: slot.client.email,

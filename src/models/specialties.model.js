@@ -12,6 +12,15 @@ const specialtySchema = new mongoose.Schema({
     trim: true,
     default: null
   },
+  icon: {
+    type: String, // chemin relatif sous public/spe_
+    trim: true,
+    default: null
+  },
+  show: {
+    type: Boolean,
+    default: false
+  },
   subSpecialties: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SubSpecialty'

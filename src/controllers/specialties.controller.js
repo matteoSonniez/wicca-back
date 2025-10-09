@@ -3,8 +3,13 @@ const Specialty = require('../models/specialties.model');
 // Créer une nouvelle spécialité
 exports.createSpecialty = async (req, res) => {
   try {
-    const { name } = req.body;
-    const specialty = new Specialty({ name });
+    const { name, color, icon, show } = req.body;
+    const specialty = new Specialty({
+      name,
+      color: color || null,
+      icon: icon || null,
+      show: show === true
+    });
     await specialty.save();
     res.status(201).json(specialty);
   } catch (error) {
@@ -37,3 +42,23 @@ exports.searchSpecialties = async (req, res) => {
     res.status(500).json({ message: "Erreur lors de la recherche de spécialités", error: error.message });
   }
 }; 
+
+// Mettre à jour une spécialité
+exports.updateSpecialty = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, color, icon, show } = req.body || {};
+    const update = {};
+    if (typeof name === 'string') update.name = name;
+    if (typeof color === 'string' || color === null) update.color = color ?? null;
+    if (typeof icon === 'string' || icon === null) update.icon = icon ?? null;
+    if (typeof show === 'boolean') update.show = show === true;
+    if (Object.keys(update).length === 0) return res.status(400).json({ message: 'Aucun champ valide fourni' });
+    const specialty = await Specialty.findByIdAndUpdate(id, update, { new: true, runValidators: true, context: 'query' })
+      .populate('subSpecialties');
+    if (!specialty) return res.status(404).json({ message: 'Spécialité non trouvée' });
+    res.status(200).json({ message: 'Spécialité mise à jour', specialty });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};

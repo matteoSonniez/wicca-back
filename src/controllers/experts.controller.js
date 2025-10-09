@@ -26,7 +26,7 @@ function getNoteMoyenneSur100(notes) {
 
 exports.createExpert = async (req, res, next) => {
   try {
-    const { firstName, lastName, email, password, adressrdv, specialties, francais, anglais, roumain, allemand, italien, espagnol, termsAccepted } = req.body;
+    const { firstName, email, password, adressrdv, siret, specialties, francais, anglais, roumain, allemand, italien, espagnol, termsAccepted } = req.body;
     const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : email;
     // Valider acceptation des CGU
     if (termsAccepted !== true) {
@@ -36,10 +36,10 @@ exports.createExpert = async (req, res, next) => {
     const { TERMS_EXPERTS_VERSION } = require('../utils/terms');
     const expert = new Expert({
       firstName,
-      lastName,
       email: normalizedEmail,
       password,
       adressrdv,
+      siret: siret || '',
       specialties,
       francais,
       anglais,
@@ -194,7 +194,7 @@ exports.deleteExpertPhoto = async (req, res) => {
 exports.updateExpertProfile = async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ['firstName','lastName','email','adressrdv','description','francais','anglais','roumain','allemand','italien','espagnol','avatard'];
+    const allowed = ['firstName','email','adressrdv','description','francais','anglais','roumain','allemand','italien','espagnol','avatard','siret'];
     const update = {};
     for (const k of allowed) {
       if (Object.prototype.hasOwnProperty.call(req.body, k)) {
@@ -343,8 +343,7 @@ exports.searchExperts = async (req, res) => {
     const match = {
       isValidate: true,
       $or: [
-        { firstName: { $regex: search, $options: 'i' } },
-        { lastName: { $regex: search, $options: 'i' } }
+        { firstName: { $regex: search, $options: 'i' } }
       ]
     };
     const totalSearch = await Expert.countDocuments(match);
