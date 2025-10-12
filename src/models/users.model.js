@@ -25,6 +25,10 @@ const userSchema = mongoose.Schema({
   phone: {
     type: String,
   },
+  favorites: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Expert'
+  }],
   rdv: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'BookedSlot'

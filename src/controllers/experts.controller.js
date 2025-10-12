@@ -290,12 +290,12 @@ exports.updateWeeklySchedule = async (req, res) => {
     );
     if (!expert) return res.status(404).json({ message: 'Expert non trouvé' });
 
-    // Propager aux 14 prochains jours
+    // Propager aux 30 prochains jours
     const today = new Date();
     const horizon = new Date(today);
-    horizon.setDate(today.getDate() + 14);
+    horizon.setDate(today.getDate() + 29);
     const updates = [];
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 30; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
       const yyyy = d.getFullYear();
@@ -316,7 +316,7 @@ exports.updateWeeklySchedule = async (req, res) => {
         ));
       }
     }
-    // Supprimer toute disponibilité hors fenêtre
+    // Supprimer toute disponibilité hors fenêtre (au-delà de 30 jours)
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');

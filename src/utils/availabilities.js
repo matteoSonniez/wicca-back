@@ -10,9 +10,9 @@ async function getAvailabilitiesForExpert(expertId, duration) {
   const mm = String(today.getMonth() + 1).padStart(2, '0');
   const dd = String(today.getDate()).padStart(2, '0');
   const todayStr = `${yyyy}-${mm}-${dd}`;
-  // Fenêtre d'horizon: aujourd'hui + 14 jours (15 jours au total)
+  // Fenêtre d'horizon: aujourd'hui + 29 jours (30 jours au total)
   const horizon = new Date(today);
-  horizon.setDate(today.getDate() + 14);
+  horizon.setDate(today.getDate() + 29);
   const yyyyH = horizon.getFullYear();
   const mmH = String(horizon.getMonth() + 1).padStart(2, '0');
   const ddH = String(horizon.getDate()).padStart(2, '0');
@@ -42,11 +42,11 @@ async function getAvailabilitiesForExpert(expertId, duration) {
     date: { $gte: todayStr, $lte: horizonEndStr }
   }).sort({ date: 1 }).populate('bookedSlots');
 
-  // 4) Compléter jusqu'à 14 jours manquants (upsert, évite doublons)
-  if (availabilities.length < 15) { // 15 jours incluant aujourd'hui
+  // 4) Compléter jusqu'à 29 jours manquants (upsert, évite doublons)
+  if (availabilities.length < 30) { // 30 jours incluant aujourd'hui
     const existingDates = new Set(availabilities.map(a => a.date));
     let startDate = availabilities.length > 0 ? new Date(availabilities[availabilities.length - 1].date) : today;
-    for (let i = availabilities.length; i < 15; i++) {
+    for (let i = availabilities.length; i < 30; i++) {
       let dateToAdd;
       if (i === availabilities.length && availabilities.length === 0) {
         dateToAdd = new Date(startDate);
@@ -90,11 +90,11 @@ async function getAvailabilitiesForExpert(expertId, duration) {
         availabilities.push(newAvail);
       }
     }
-    // Re-lecture propre et limitée à 14
+    // Re-lecture propre et limitée à 29
     availabilities = await Availability.find({
       expertId,
       date: { $gte: todayStr, $lte: horizonEndStr }
-    }).sort({ date: 1 }).limit(15).populate('bookedSlots');
+    }).sort({ date: 1 }).limit(30).populate('bookedSlots');
   }
   function toMinutes(str) {
     const [h, m] = str.split(":").map(Number);
