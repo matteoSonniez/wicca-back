@@ -3,6 +3,9 @@ exports.createCheckoutSession = async (req, res) => {
   try {
     console.log("createCheckoutSession");
     const { amount, currency, success_url, cancel_url, metadata } = req.body;
+    const baseAmount = Math.round(Number(amount || 0));
+    const currencyNorm = String(currency || 'eur').toLowerCase();
+    const fixedSurchargeCents = currencyNorm === 'eur' ? 30 : 0; // +0,30€ pour EUR
 
     // Prépare le routage des fonds (destination charges) si l'expert a un compte Connect
     const BookedSlot = require('../models/bookedSlot.model');
@@ -40,18 +43,28 @@ exports.createCheckoutSession = async (req, res) => {
     } catch (_) {
       feePercent = 10;
     }
-    applicationFeeAmount = Math.round((Number(amount || 0)) * (feePercent / 100));
+    // Commission de base (10% ou 30%) calculée sur le montant de base, puis on ajoute 0,30€ à NOS frais (pas à l'expert)
+    const baseFeeAmount = Math.round(baseAmount * (feePercent / 100));
+    const totalAmountCents = baseAmount + fixedSurchargeCents; // Montant payé par le client
+    applicationFeeAmount = baseFeeAmount + (fixedSurchargeCents); // Nous gardons la commission + 0,30€
 
     const paymentIntentData = {
       metadata: metadata || {},
       capture_method: 'manual'
     };
-    // Ajoute la commission choisie pour traçabilité
+    // Ajoute la commission + surcharge pour traçabilité
     try {
-      paymentIntentData.metadata = Object.assign({}, paymentIntentData.metadata, { feePercent: String(feePercent) });
+      paymentIntentData.metadata = Object.assign({}, paymentIntentData.metadata, {
+        feePercent: String(feePercent),
+        baseAmountCents: String(baseAmount),
+        fixedSurchargeCents: String(fixedSurchargeCents),
+        feeAmountCents: String(applicationFeeAmount),
+        totalAmountCents: String(totalAmountCents)
+      });
     } catch (_) {}
 
     if (connectedAccountId) {
+      // En destination charge, l'application fee inclut la commission + 0,30€
       paymentIntentData.application_fee_amount = applicationFeeAmount || 0;
       paymentIntentData.transfer_data = { destination: connectedAccountId };
       paymentIntentData.on_behalf_of = connectedAccountId;
@@ -61,6 +74,19 @@ exports.createCheckoutSession = async (req, res) => {
     const successUrlFinal = success_url || `${baseUrl}/mon_rdv?success=1`;
     const cancelUrlFinal = cancel_url || `${baseUrl}/mon_rdv?success=0`;
 
+    const sessionMetadata = (() => {
+      try {
+        return Object.assign({}, metadata || {}, {
+          feePercent: String(feePercent),
+          baseAmountCents: String(baseAmount),
+          fixedSurchargeCents: String(fixedSurchargeCents),
+          totalAmountCents: String(totalAmountCents)
+        });
+      } catch (_) {
+        return metadata || {};
+      }
+    })();
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'payment',
@@ -68,14 +94,14 @@ exports.createCheckoutSession = async (req, res) => {
         price_data: {
           currency: currency || 'eur',
           product_data: { name: 'Consultation' },
-          unit_amount: amount,
+          unit_amount: totalAmountCents,
         },
         quantity: 1,
       }],
       success_url: successUrlFinal,
       cancel_url: cancelUrlFinal,
       customer_email: req.user?.email,
-      metadata: metadata || {},
+      metadata: sessionMetadata,
       payment_intent_data: paymentIntentData
     });
     // Sauvegarder l'id de session Stripe sur le slot
