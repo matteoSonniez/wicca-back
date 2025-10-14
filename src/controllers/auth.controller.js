@@ -133,11 +133,30 @@ exports.verifySignupCode = async (req, res) => {
         return res.status(400).json({ message: "Acceptation des conditions manquante ou invalide." });
       }
       const { TERMS_EXPERTS_VERSION } = require('../utils/terms');
+      // Normaliser adresse: accepter string legacy ou objet
+      let adressObj = null;
+      if (data.adressrdv && typeof data.adressrdv === 'string') {
+        const parts = data.adressrdv.split(',').map(s => s.trim());
+        adressObj = {
+          addressLine: parts[0] || data.adressrdv,
+          postalCode: parts[1] || '',
+          city: parts[2] || ''
+        };
+      } else if (data.adressrdv && typeof data.adressrdv === 'object') {
+        adressObj = {
+          addressLine: (data.adressrdv.addressLine || '').trim(),
+          postalCode: (data.adressrdv.postalCode || '').trim(),
+          city: (data.adressrdv.city || '').trim()
+        };
+      } else {
+        adressObj = { addressLine: '', postalCode: '', city: '' };
+      }
+
       const expert = new Expert({
         firstName: data.firstName,
         email: data.email,
         password: data.password,
-        adressrdv: data.adressrdv,
+        adressrdv: adressObj,
         siret: data.siret || '',
         specialties: data.specialties,
         francais: !!data.francais,

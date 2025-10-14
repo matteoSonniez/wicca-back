@@ -1,5 +1,40 @@
 const Specialty = require('../models/specialties.model');
 
+// Construit une regex tolérante aux accents à partir d'une chaîne utilisateur
+function buildDiacriticInsensitivePattern(input) {
+  const map = {
+    a: "aàáâãäåā",
+    c: "cç",
+    e: "eèéêëēĕėęě",
+    i: "iìíîïīĭįı",
+    n: "nñńňŉŋ",
+    o: "oòóôõöōŏő",
+    u: "uùúûüūŭůűų",
+    y: "yỳýÿŷ",
+    s: "sśŝşš",
+    z: "zźżž",
+    g: "gğǵĝğġģ",
+    l: "lĺļľł",
+    r: "rŕŗř",
+    t: "tţť",
+  };
+  const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const chars = Array.from(input || "");
+  let pattern = "";
+  for (const ch of chars) {
+    const lower = ch.toLowerCase();
+    if (map[lower]) {
+      const cls = Array.from(map[lower])
+        .map((x) => escapeRegex(x))
+        .join("");
+      pattern += `[${cls}]`;
+    } else {
+      pattern += escapeRegex(ch);
+    }
+  }
+  return pattern;
+}
+
 // Créer une nouvelle spécialité
 exports.createSpecialty = async (req, res) => {
   try {
@@ -34,8 +69,9 @@ exports.searchSpecialties = async (req, res) => {
     if (!search) {
       return res.status(400).json({ message: "Le champ de recherche est requis." });
     }
+    const pattern = buildDiacriticInsensitivePattern(String(search).trim());
     const specialties = await Specialty.find({
-      name: { $regex: search, $options: 'i' }
+      name: { $regex: pattern, $options: 'i' }
     }).populate('subSpecialties');
     res.status(200).json(specialties);
   } catch (error) {

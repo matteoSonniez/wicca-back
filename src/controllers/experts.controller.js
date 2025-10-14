@@ -17,6 +17,41 @@ function normalize(str) {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
+// Construit une regex tolérante aux accents à partir d'une chaîne utilisateur
+function buildDiacriticInsensitivePattern(input) {
+  const map = {
+    a: "aàáâãäåā",
+    c: "cç",
+    e: "eèéêëēĕėęě",
+    i: "iìíîïīĭįı",
+    n: "nñńňŉŋ",
+    o: "oòóôõöōŏő",
+    u: "uùúûüūŭůűų",
+    y: "yỳýÿŷ",
+    s: "sśŝşš",
+    z: "zźżž",
+    g: "gğǵĝğġģ",
+    l: "lĺļľł",
+    r: "rŕŗř",
+    t: "tţť",
+  };
+  const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const chars = Array.from(input || "");
+  let pattern = "";
+  for (const ch of chars) {
+    const lower = ch.toLowerCase();
+    if (map[lower]) {
+      const cls = Array.from(map[lower])
+        .map((x) => escapeRegex(x))
+        .join("");
+      pattern += `[${cls}]`;
+    } else {
+      pattern += escapeRegex(ch);
+    }
+  }
+  return pattern;
+}
+
 function getNoteMoyenneSur100(notes) {
   if (!notes || notes.length === 0) return null;
   const sum = notes.reduce((acc, n) => acc + n, 0);
@@ -34,11 +69,31 @@ exports.createExpert = async (req, res, next) => {
     }
     // specialties doit être un tableau d'objets : [{ specialty, subSpecialties: [] }]
     const { TERMS_EXPERTS_VERSION } = require('../utils/terms');
+    // Normaliser adresse: accepter string (legacy) ou objet { addressLine, postalCode, city }
+    let adressObj = null;
+    if (adressrdv && typeof adressrdv === 'string') {
+      // essayer de parser un format simple "addressLine, postalCode, city"
+      const parts = adressrdv.split(',').map(s => s.trim());
+      adressObj = {
+        addressLine: parts[0] || adressrdv,
+        postalCode: parts[1] || '',
+        city: parts[2] || ''
+      };
+    } else if (adressrdv && typeof adressrdv === 'object') {
+      adressObj = {
+        addressLine: (adressrdv.addressLine || '').trim(),
+        postalCode: (adressrdv.postalCode || '').trim(),
+        city: (adressrdv.city || '').trim()
+      };
+    } else {
+      adressObj = { addressLine: '', postalCode: '', city: '' };
+    }
+
     const expert = new Expert({
       firstName,
       email: normalizedEmail,
       password,
-      adressrdv,
+      adressrdv: adressObj,
       siret: siret || '',
       specialties,
       francais,
@@ -198,7 +253,23 @@ exports.updateExpertProfile = async (req, res) => {
     const update = {};
     for (const k of allowed) {
       if (Object.prototype.hasOwnProperty.call(req.body, k)) {
-        update[k] = req.body[k];
+        if (k === 'adressrdv') {
+          const val = req.body[k];
+          if (val && typeof val === 'string') {
+            const parts = val.split(',').map(s => s.trim());
+            update[k] = { addressLine: parts[0] || val, postalCode: parts[1] || '', city: parts[2] || '' };
+          } else if (val && typeof val === 'object') {
+            update[k] = {
+              addressLine: (val.addressLine || '').trim(),
+              postalCode: (val.postalCode || '').trim(),
+              city: (val.city || '').trim()
+            };
+          } else {
+            update[k] = { addressLine: '', postalCode: '', city: '' };
+          }
+        } else {
+          update[k] = req.body[k];
+        }
       }
     }
     // Normaliser le champ avatard: autoriser string non vide ou null
@@ -340,10 +411,11 @@ exports.searchExperts = async (req, res) => {
     if (!search) {
       return res.status(400).json({ message: "Le champ de recherche est requis." });
     }
+    const pattern = buildDiacriticInsensitivePattern(String(search).trim());
     const match = {
       isValidate: true,
       $or: [
-        { firstName: { $regex: search, $options: 'i' } }
+        { firstName: { $regex: pattern, $options: 'i' } }
       ]
     };
     const totalSearch = await Expert.countDocuments(match);
@@ -383,7 +455,13 @@ exports.findExpertsBySpecialty = async (req, res) => {
       isValidate: true
     };
     if (adressrdv) {
-      query.adressrdv = { $regex: adressrdv, $options: 'i' };
+      const regex = { $regex: String(adressrdv), $options: 'i' };
+      query.$or = [
+        { 'adressrdv': regex }, // fallback anciens documents (string)
+        { 'adressrdv.addressLine': regex },
+        { 'adressrdv.city': regex },
+        { 'adressrdv.postalCode': regex }
+      ];
     }
     const total = await Expert.countDocuments(query);
     const skip = limit ? (page - 1) * limit : 0;
@@ -484,7 +562,13 @@ exports.findExpertsWithFilters = async (req, res) => {
 
     const query = {};
     if (adressrdv) {
-      query.adressrdv = { $regex: adressrdv, $options: 'i' };
+      const regex = { $regex: String(adressrdv), $options: 'i' };
+      query.$or = [
+        { 'adressrdv': regex }, // fallback anciens documents (string)
+        { 'adressrdv.addressLine': regex },
+        { 'adressrdv.city': regex },
+        { 'adressrdv.postalCode': regex }
+      ];
     }
     // visio/onsite doivent désormais être vérifiés au niveau de specialties (par spécialité)
     // Filtres langues directement en Mongo (AND logique sur les langues demandées)

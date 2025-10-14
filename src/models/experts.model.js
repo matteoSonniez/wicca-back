@@ -52,8 +52,9 @@ const expertSchema = mongoose.Schema({
   //   required: true
   // },
   adressrdv: {
-    type: String,
-    required: true
+    postalCode: { type: String, trim: true, default: '' },
+    city: { type: String, trim: true, default: '' },
+    addressLine: { type: String, trim: true, default: '' }
   },
   francais: {
     type: Boolean,
@@ -188,6 +189,22 @@ const expertSchema = mongoose.Schema({
     timestamps: true
   }
 )
+
+// Rendre les réponses JSON et Object rétro-compatibles:
+// - Inclure `adressrdv` sous forme de chaîne jointe "addressLine, postalCode, city"
+// - Conserver l'objet complet sous `adressrdvObj`
+const toTransport = (doc, ret) => {
+  const a = ret && ret.adressrdv;
+  if (a && typeof a === 'object' && !Array.isArray(a)) {
+    ret.adressrdvObj = { ...a };
+    const parts = [a.addressLine, a.postalCode, a.city].filter(Boolean);
+    ret.adressrdv = parts.join(', ');
+  }
+  return ret;
+};
+
+expertSchema.set('toJSON', { virtuals: true, transform: toTransport });
+expertSchema.set('toObject', { virtuals: true, transform: toTransport });
 
 // Index unique déjà défini via le champ { unique: true } sur email
 
