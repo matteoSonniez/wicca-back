@@ -155,16 +155,16 @@ exports.webhook = async (req, res) => {
     const paymentIntentId = session.payment_intent;
     if (bookedSlotId && paymentIntentId) {
       const BookedSlot = require('../models/bookedSlot.model');
-      // Calculer PROCHAIN lundi 10:00 (jamais dans le passé)
+      // Calculer PROCHAIN mercredi 12:30 (jamais dans le passé)
       const now = new Date();
       let schedule = new Date(now);
       const day = now.getDay(); // 0=dimanche..1=lundi..6=samedi
-      const desiredDay = 1; // lundi
+      const desiredDay = 3; // mercredi
       let daysAhead = (desiredDay - day + 7) % 7; // 0..6
       schedule.setDate(now.getDate() + daysAhead);
-      schedule.setHours(10, 0, 0, 0);
+      schedule.setHours(12, 30, 0, 0);
       if (schedule <= now) {
-        // si on est déjà lundi 10:00 passé, bascule lundi prochain
+        // si on est déjà mercredi 12:30 passé, bascule mercredi prochain
         schedule.setDate(schedule.getDate() + 7);
       }
 
@@ -179,12 +179,12 @@ exports.webhook = async (req, res) => {
           } catch (_) {}
 
           if (schedule <= rdvDateTime) {
-            // Recalcule: premier lundi 10:00 STRICTEMENT après la date/heure du RDV
+            // Recalcule: premier mercredi 12:30 STRICTEMENT après la date/heure du RDV
             const base = new Date(rdvDateTime);
             const baseDay = base.getDay(); // 0..6
-            let da = (1 - baseDay + 7) % 7; // vers lundi
+            let da = (3 - baseDay + 7) % 7; // vers mercredi
             base.setDate(base.getDate() + da);
-            base.setHours(10, 0, 0, 0);
+            base.setHours(12, 30, 0, 0);
             if (base <= rdvDateTime) {
               base.setDate(base.getDate() + 7);
             }

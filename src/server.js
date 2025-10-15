@@ -53,13 +53,13 @@ app.listen(process.env.PORT, function () {
   console.log("Server launch");
 }); 
 
-// Cron: chaque lundi à 10:00 heure serveur
+// Cron: chaque mercredi à 12:30 heure serveur
 try {
   const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
   const BookedSlot = require('./models/bookedSlot.model');
   const { sendAppointmentEndedEmail } = require('./utils/mailer');
-  cron.schedule('0 10 * * 1', async () => {
-    console.log('[Cron] Capture des paiements autorisés (lundi 10:00)');
+  cron.schedule('30 12 * * 3', async () => {
+    console.log('[Cron] Capture des paiements autorisés (mercredi 12:30)');
     const now = new Date();
     const toCapture = await BookedSlot.find({
       authorized: true,
