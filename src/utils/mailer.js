@@ -341,7 +341,88 @@ module.exports.sendExpertAppointmentNotificationEmail = async function({ to, exp
   const safeFirst = expertFirstName || '';
   const link = visio ? (jaasLink || '') : '';
   const baseUrl = (process.env.APP_BASE_URL || process.env.FRONT_BASE_URL || process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://wicca.fr').replace(/\/$/, '');
-  const dashboardUrl = `${baseUrl}/dashboard`;
+  const dashboardRdvUrl = `${baseUrl}/dashboard/rdv`;
+  
+  // Helpers calendrier (copiés de l'email client)
+  function parseDateAndTime(dateString, timeString) {
+    try {
+      if (!dateString || !timeString) return null;
+      let y, m, d;
+      let m1 = dateString.match(/^(\d{4})-(\d{2})-(\d{2})$/); // YYYY-MM-DD
+      if (m1) {
+        y = Number(m1[1]); m = Number(m1[2]); d = Number(m1[3]);
+      } else {
+        let m2 = dateString.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/); // DD/MM/YYYY ou DD-MM-YYYY
+        if (!m2) return null;
+        d = Number(m2[1]); m = Number(m2[2]); y = Number(m2[3]);
+      }
+      // Heure: "HH:mm" ou "HH:mm - HH:mm"
+      const t = timeString.replace(/\s+/g, '');
+      let startH = 9, startMin = 0, endH = null, endMin = null;
+      let tt = t.match(/^(\d{1,2}):(\d{2})(?:[-–](\d{1,2}):(\d{2}))?$/);
+      if (tt) {
+        startH = Number(tt[1]); startMin = Number(tt[2]);
+        if (tt[3] && tt[4]) { endH = Number(tt[3]); endMin = Number(tt[4]); }
+      }
+      const start = new Date(y, (m - 1), d, startH, startMin, 0);
+      let end;
+      if (endH != null) {
+        end = new Date(y, (m - 1), d, endH, endMin, 0);
+      } else {
+        end = new Date(start.getTime() + 60 * 60 * 1000); // défaut 60 min
+      }
+      return { start, end };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function formatICSDate(dt) {
+    const pad = (n) => (n < 10 ? '0' + n : '' + n);
+    const y = dt.getFullYear();
+    const m = pad(dt.getMonth() + 1);
+    const d = pad(dt.getDate());
+    const hh = pad(dt.getHours());
+    const mm = pad(dt.getMinutes());
+    const ss = pad(dt.getSeconds());
+    return `${y}${m}${d}T${hh}${mm}${ss}`; // heure locale (flottante)
+  }
+
+  function buildICS({ start, end, summary, description, location, url }) {
+    const uid = `wicca-${Date.now()}-${Math.random().toString(16).slice(2)}@wicca`;
+    const dtstamp = formatICSDate(new Date());
+    const dtstart = formatICSDate(start);
+    const dtend = formatICSDate(end);
+    const desc = (description || '').replace(/\n/g, '\\n');
+    const loc = (location || '').replace(/\n/g, '\\n');
+    const icsLines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Wicca//Calendar//FR',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'BEGIN:VEVENT',
+      `UID:${uid}`,
+      `DTSTAMP:${dtstamp}`,
+      `DTSTART:${dtstart}`,
+      `DTEND:${dtend}`,
+      `SUMMARY:${summary || ''}`,
+      `DESCRIPTION:${desc}${url ? `\\n\\n${url}` : ''}`,
+      loc ? `LOCATION:${loc}` : null,
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].filter(Boolean);
+    return icsLines.join('\r\n');
+  }
+
+  const parsed = parseDateAndTime(dateStr, heureStr);
+  const summary = `Rendez-vous Wicca avec ${clientName || 'un client'}`;
+  const description = visio ? `Séance en visio. Lien: ${link}` : 'Séance en présentiel.';
+  const location = visio ? 'En ligne' : 'Présentiel';
+  const googleUrl = parsed
+    ? `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(summary)}&dates=${formatICSDate(parsed.start)}/${formatICSDate(parsed.end)}&details=${encodeURIComponent(description)}&location=${encodeURIComponent(location)}`
+    : null;
+  const icsContent = parsed ? buildICS({ start: parsed.start, end: parsed.end, summary, description, location, url: dashboardRdvUrl }) : null;
 
   const text = [
     'Objet : Nouveau rendez-vous Wicca',
@@ -353,8 +434,10 @@ module.exports.sendExpertAppointmentNotificationEmail = async function({ to, exp
     `Date & heure : ${dateStr} ${heureStr}`,
     `Format : ${visio ? 'Séance en visio' : 'Séance en présentiel'}`,
     visio ? `Lien visio (client) : ${link}` : null,
+    parsed ? `Ajouter au calendrier (Google) : ${googleUrl}` : null,
+    parsed ? 'Un fichier .ics est joint pour l’ajouter à tout autre calendrier.' : null,
     '',
-    `Gérer vos rendez-vous : ${dashboardUrl}`,
+    `Gérer vos rendez-vous : ${dashboardRdvUrl}`,
     '',
     'À très bientôt,',
     'L’équipe Wicca'
@@ -371,8 +454,15 @@ module.exports.sendExpertAppointmentNotificationEmail = async function({ to, exp
         <strong>Format :</strong> ${visio ? 'Séance en visio' : 'Séance en présentiel'}
         ${visio && jaasLink ? `<br/><strong>Lien visio (client) :</strong> <a href="${jaasLink}" target="_blank" rel="noopener">Voir la page RDV</a>` : ''}
       </p>
+      ${parsed ? `<div style="margin:6px 0 18px">
+        <a href="${googleUrl}" target="_blank" rel="noopener"
+           style="display:inline-block;background:#e91e63;color:#fff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;margin-right:8px">
+          Ajouter à Google Calendar
+        </a>
+        <span style="display:inline-block;color:#555;vertical-align:middle">Ou utilisez le fichier <strong>.ics</strong> joint.</span>
+      </div>` : ''}
       <div style="margin:18px 0 22px">
-        <a href="${dashboardUrl}" target="_blank" rel="noopener"
+        <a href="${dashboardRdvUrl}" target="_blank" rel="noopener"
            style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:600">
           Accéder à votre tableau de bord
         </a>
@@ -381,7 +471,9 @@ module.exports.sendExpertAppointmentNotificationEmail = async function({ to, exp
     </div>
   `;
 
-  return sendEmail({ to, subject, text, html });
+  const attachments = icsContent ? [{ filename: 'wicca-rdv.ics', content: icsContent, contentType: 'text/calendar; charset=utf-8' }] : undefined;
+
+  return sendEmail({ to, subject, text, html, attachments });
 }
 
 // Email de fin de rendez-vous pour le client avec CTA avis

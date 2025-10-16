@@ -11,6 +11,8 @@ const jaasRouter = require("./jaas.route");
 const rdvRouter = require("./rdv.route");
 const dashboardRouter = require("./dashboard.route");
 const reviewsRouter = require("./reviews.route");
+const promoRouter = require("./promo.route");
+const adminRouter = require("./admin.route");
 
 router.use("/experts", expertsRouter);
 router.use("/users", usersRouter);
@@ -23,5 +25,7 @@ router.use("/jaas", jaasRouter);
 router.use("/rdv", rdvRouter);
 router.use("/dashboard", dashboardRouter);
 router.use("/reviews", reviewsRouter);
+router.use("/promo", promoRouter);
+router.use("/admin", adminRouter);
 
 module.exports = router;

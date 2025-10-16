@@ -104,6 +104,8 @@ async function getAvailabilitiesForExpert(expertId, duration) {
     const slots = [];
     // Construire la liste des plages effectives pour la journée
     const effectiveRanges = Array.isArray(avail.ranges) ? avail.ranges : [];
+    // Délai entre consultations (minutes)
+    const gap = Number(expert.delayTime) || 0;
     let nowMinutes = 0;
     const today = new Date();
     const yyyy = today.getFullYear();
@@ -114,6 +116,33 @@ async function getAvailabilitiesForExpert(expertId, duration) {
       // Appliquer un délai minimal de 10 minutes avant le prochain créneau affiché
       nowMinutes = today.getHours() * 60 + today.getMinutes() + 10;
     }
+    // Préparer les fenêtres interdites pour les DÉBUTS de créneau, en fonction des RDV existants + délai
+    const now = new Date();
+    const blocking = (avail.bookedSlots || [])
+      .filter(slot => !!slot && !slot.cancel)
+      .filter(slot => {
+        const isActiveHold = !slot.paid && slot.holdExpiresAt && new Date(slot.holdExpiresAt) > now;
+        const isAuthorized = slot.authorized === true;
+        const isScheduledCapture = slot.captureScheduledFor && new Date(slot.captureScheduledFor) > now;
+        return (slot.paid === true) || isActiveHold || isAuthorized || isScheduledCapture;
+      })
+      .map(slot => [toMinutes(slot.start), toMinutes(slot.end)])
+      .sort((a, b) => a[0] - b[0]);
+
+    // Interdiction des débuts s dans (slotStart - gap - duration, slotEnd + gap)
+    const rawForbidden = blocking.map(([bs, be]) => [Math.max(0, bs - gap - duration), be + gap]);
+    // Fusionner les intervalles interdits
+    const forbidden = [];
+    for (const iv of rawForbidden) {
+      if (forbidden.length === 0) { forbidden.push(iv); continue; }
+      const last = forbidden[forbidden.length - 1];
+      if (iv[0] <= last[1]) {
+        last[1] = Math.max(last[1], iv[1]);
+      } else {
+        forbidden.push(iv);
+      }
+    }
+
     for (const range of effectiveRanges) {
       const [h, m] = (range.start || '00:00').split(":").map(Number);
       const [endH, endM] = (range.end || '00:00').split(":").map(Number);
@@ -121,6 +150,17 @@ async function getAvailabilitiesForExpert(expertId, duration) {
       let current = h * 60 + m;
       while (current + duration <= endMinutes) {
         if (avail.date !== todayStr || current >= nowMinutes) {
+          // Si on est aujourd'hui, respecter le nowMinutes minimal
+          if (avail.date === todayStr && current < nowMinutes) {
+            current = nowMinutes;
+            continue;
+          }
+          // Si current tombe dans une fenêtre interdite, sauter à la fin de celle-ci
+          const blockIv = forbidden.find(([s, e]) => current >= s && current < e);
+          if (blockIv) {
+            current = blockIv[1];
+            continue;
+          }
           const startH = Math.floor(current / 60);
           const startM = current % 60;
           const startStr = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`;
@@ -130,7 +170,6 @@ async function getAvailabilitiesForExpert(expertId, duration) {
           const endStr = `${String(endHSlot).padStart(2, '0')}:${String(endMSlot).padStart(2, '0')}`;
           const startMin = toMinutes(startStr);
           const endMin = toMinutes(endStr);
-          const now = new Date();
           const conflict = (avail.bookedSlots || [])
             .filter(slot => !!slot && !slot.cancel)
             .some(slot => {
@@ -143,10 +182,12 @@ async function getAvailabilitiesForExpert(expertId, duration) {
               const slotEndMin = toMinutes(slot.end);
               return (startMin < slotEndMin && endMin > slotStartMin);
             });
+          // Les fenêtres interdites gèrent déjà le délai avant/après; on garde le test de conflit par sécurité
           if (!conflict) {
             slots.push({ start: startStr, end: endStr });
           }
         }
+        // Incrémente par la durée uniquement; avec saut automatique des fenêtres interdites
         current += duration;
       }
     }

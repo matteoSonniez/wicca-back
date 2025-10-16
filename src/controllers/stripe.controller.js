@@ -2,7 +2,7 @@ exports.createCheckoutSession = async (req, res) => {
   const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
   try {
     console.log("createCheckoutSession");
-    const { amount, currency, success_url, cancel_url, metadata } = req.body;
+    const { amount, currency, success_url, cancel_url, metadata, promoCode } = req.body;
     const baseAmount = Math.round(Number(amount || 0));
     const currencyNorm = String(currency || 'eur').toLowerCase();
     const fixedSurchargeCents = currencyNorm === 'eur' ? 30 : 0; // +0,30€ pour EUR
@@ -45,8 +45,41 @@ exports.createCheckoutSession = async (req, res) => {
     }
     // Commission de base (10% ou 30%) calculée sur le montant de base, puis on ajoute 0,30€ à NOS frais (pas à l'expert)
     const baseFeeAmount = Math.round(baseAmount * (feePercent / 100));
-    const totalAmountCents = baseAmount + fixedSurchargeCents; // Montant payé par le client
-    applicationFeeAmount = baseFeeAmount + (fixedSurchargeCents); // Nous gardons la commission + 0,30€
+    // Appliquer une remise éventuelle via code promo (par défaut 0%)
+    let discountPercent = 0;
+    let appliedPromoCode = null;
+    if (typeof promoCode === 'string' && promoCode.trim().length > 0) {
+      try {
+        const PromoCode = require('../models/promoCode.model');
+        const now = new Date();
+        // filtre single-use: pas utilisé, pas réservé ou réservation expirée
+        const found = await PromoCode.findOne({ code: promoCode.trim().toUpperCase(), active: true, used: { $ne: true } });
+        if (found) {
+          const withinStart = !found.validFrom || found.validFrom <= now;
+          const withinEnd = !found.validTo || found.validTo >= now;
+          const reservedValid = !!found.reservedUntil && found.reservedUntil > now;
+          if (withinStart && withinEnd && (!reservedValid || String(found.reservedBy) === String(metadata?.bookedSlotId || ''))) {
+            discountPercent = Math.max(0, Math.min(100, Number(found.percentOff || 0)));
+            appliedPromoCode = found.code;
+            // réserver pour la durée du hold
+            try {
+              const holdMs = 2 * 60 * 1000; // doit être aligné avec HOLD_MINUTES
+              await PromoCode.updateOne(
+                { _id: found._id, used: { $ne: true } },
+                { $set: { reservedBy: metadata?.bookedSlotId || null, reservedUntil: new Date(Date.now() + holdMs) } }
+              );
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
+
+    const discountAmountCents = Math.round(baseAmount * (discountPercent / 100));
+    const discountedBaseAmount = Math.max(0, baseAmount - discountAmountCents);
+    const totalAmountCents = discountedBaseAmount + fixedSurchargeCents; // Montant payé par le client
+    // Préserve le net de l'expert: notre application fee est réduit du montant de la remise
+    // app_fee = (commission + 0,30€) - remise, borné à [0, total]
+    applicationFeeAmount = Math.max(0, Math.min(totalAmountCents, (baseFeeAmount + fixedSurchargeCents) - discountAmountCents));
 
     const paymentIntentData = {
       metadata: metadata || {},
@@ -57,6 +90,9 @@ exports.createCheckoutSession = async (req, res) => {
       paymentIntentData.metadata = Object.assign({}, paymentIntentData.metadata, {
         feePercent: String(feePercent),
         baseAmountCents: String(baseAmount),
+        discountPercent: String(discountPercent),
+        discountAmountCents: String(discountAmountCents),
+        appliedPromoCode: appliedPromoCode || '',
         fixedSurchargeCents: String(fixedSurchargeCents),
         feeAmountCents: String(applicationFeeAmount),
         totalAmountCents: String(totalAmountCents)
@@ -79,6 +115,9 @@ exports.createCheckoutSession = async (req, res) => {
         return Object.assign({}, metadata || {}, {
           feePercent: String(feePercent),
           baseAmountCents: String(baseAmount),
+          discountPercent: String(discountPercent),
+          discountAmountCents: String(discountAmountCents),
+          appliedPromoCode: appliedPromoCode || '',
           fixedSurchargeCents: String(fixedSurchargeCents),
           totalAmountCents: String(totalAmountCents)
         });
@@ -104,9 +143,11 @@ exports.createCheckoutSession = async (req, res) => {
       metadata: sessionMetadata,
       payment_intent_data: paymentIntentData
     });
-    // Sauvegarder l'id de session Stripe sur le slot
+    // Sauvegarder l'id de session Stripe et le code promo appliqué sur le slot
     if (bookedSlotId && session?.id) {
-      try { await BookedSlot.findByIdAndUpdate(bookedSlotId, { $set: { stripeSessionId: session.id } }); } catch (_) {}
+      try {
+        await BookedSlot.findByIdAndUpdate(bookedSlotId, { $set: { stripeSessionId: session.id, promoCode: appliedPromoCode || null, discountPercent: discountPercent || 0, discountAmountCents } });
+      } catch (_) {}
     }
 
     // Planifier une expiration programmée côté serveur à la fin du hold (in-memory)
@@ -155,16 +196,16 @@ exports.webhook = async (req, res) => {
     const paymentIntentId = session.payment_intent;
     if (bookedSlotId && paymentIntentId) {
       const BookedSlot = require('../models/bookedSlot.model');
-      // Calculer PROCHAIN mercredi 12:30 (jamais dans le passé)
+      // Calculer PROCHAIN lundi 10:00 (jamais dans le passé)
       const now = new Date();
       let schedule = new Date(now);
       const day = now.getDay(); // 0=dimanche..1=lundi..6=samedi
-      const desiredDay = 3; // mercredi
+      const desiredDay = 1; // lundi
       let daysAhead = (desiredDay - day + 7) % 7; // 0..6
       schedule.setDate(now.getDate() + daysAhead);
-      schedule.setHours(12, 30, 0, 0);
+      schedule.setHours(10, 0, 0, 0);
       if (schedule <= now) {
-        // si on est déjà mercredi 12:30 passé, bascule mercredi prochain
+        // si on est déjà lundi 10:00 passé, bascule lundi prochain
         schedule.setDate(schedule.getDate() + 7);
       }
 
@@ -179,12 +220,12 @@ exports.webhook = async (req, res) => {
           } catch (_) {}
 
           if (schedule <= rdvDateTime) {
-            // Recalcule: premier mercredi 12:30 STRICTEMENT après la date/heure du RDV
+            // Recalcule: premier lundi 10:00 STRICTEMENT après la date/heure du RDV
             const base = new Date(rdvDateTime);
             const baseDay = base.getDay(); // 0..6
-            let da = (3 - baseDay + 7) % 7; // vers mercredi
+            let da = (1 - baseDay + 7) % 7; // vers lundi
             base.setDate(base.getDate() + da);
-            base.setHours(12, 30, 0, 0);
+            base.setHours(10, 0, 0, 0);
             if (base <= rdvDateTime) {
               base.setDate(base.getDate() + 7);
             }
@@ -211,6 +252,14 @@ exports.webhook = async (req, res) => {
     const bookedSlotId = paymentIntent.metadata?.bookedSlotId;
     if (bookedSlotId) {
       const BookedSlot = require('../models/bookedSlot.model');
+      // Marque le code promo comme utilisé si attaché à ce slot
+      try {
+        const slot = await BookedSlot.findById(bookedSlotId).select('promoCode');
+        if (slot && slot.promoCode) {
+          const PromoCode = require('../models/promoCode.model');
+          await PromoCode.updateOne({ code: slot.promoCode }, { $set: { used: true, reservedBy: null, reservedUntil: null } });
+        }
+      } catch (_) {}
       await BookedSlot.findByIdAndUpdate(
         bookedSlotId,
         { $set: { paid: true, capturedAt: new Date(), authorized: false }, $unset: { holdExpiresAt: 1 } }
@@ -226,6 +275,14 @@ exports.webhook = async (req, res) => {
         bookedSlotId,
         { $set: { authorized: false }, $unset: { paymentIntentId: 1, captureScheduledFor: 1 } }
       );
+      // Libère la réservation du code promo pour ce slot
+      try {
+        const slot = await BookedSlot.findById(bookedSlotId).select('promoCode');
+        if (slot && slot.promoCode) {
+          const PromoCode = require('../models/promoCode.model');
+          await PromoCode.updateOne({ code: slot.promoCode, used: { $ne: true } }, { $set: { reservedBy: null, reservedUntil: null } });
+        }
+      } catch (_) {}
     }
   } else if (event.type === 'account.updated') {
     // Synchronise les flags Connect sur le modèle Expert

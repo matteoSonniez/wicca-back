@@ -25,7 +25,7 @@ exports.login = async (req, res) => {
     if (!isMatch) {
       return res.status(401).json({ message: "Mot de passe incorrect" });
     }
-    const token = signJwt({ id: user._id, email: user.email, role: type });
+    const token = signJwt({ id: user._id, email: user.email, role: type, isAdmin: !!user.isAdmin });
     res.status(200).json({ message: "Connexion réussie", user, type, token });
   } catch (error) {
     res.status(500).json({ message: "Erreur lors de la connexion", error: error.message });
@@ -118,14 +118,15 @@ exports.verifySignupCode = async (req, res) => {
         lastName: data.lastName || '',
         email: data.email,
         password: data.password,
-        phone: data.phone
+        phone: data.phone,
+        birthdate: data.birthdate ? new Date(data.birthdate) : undefined
       });
       await user.save();
       // Email de bienvenue (asynchrone, non bloquant)
       sendWelcomeEmail({ to: user.email, firstName: user.firstName })
         .catch((e) => console.warn('Erreur envoi email bienvenue user:', e && e.message ? e.message : e));
       await SignupVerification.deleteOne({ _id: verif._id });
-      const token = signJwt({ id: user._id, email: user.email, role: 'user' });
+      const token = signJwt({ id: user._id, email: user.email, role: 'user', isAdmin: !!user.isAdmin });
       return res.status(201).json({ message: 'Utilisateur créé', user, token });
     } else {
       // Exiger la présence d'une acceptation en payload (ajoutée lors du request-code)
@@ -174,7 +175,7 @@ exports.verifySignupCode = async (req, res) => {
       sendExpertWelcomeEmail({ to: expert.email, firstName: expert.firstName })
         .catch((e) => console.warn('Erreur envoi email bienvenue expert:', e && e.message ? e.message : e));
       await SignupVerification.deleteOne({ _id: verif._id });
-      const token = signJwt({ id: expert._id, email: expert.email, role: 'expert' });
+      const token = signJwt({ id: expert._id, email: expert.email, role: 'expert', isAdmin: !!expert.isAdmin });
       return res.status(201).json({ message: 'Expert créé', expert, token });
     }
   } catch (error) {

@@ -9,7 +9,7 @@ const ExpertModel = require('../models/experts.model');
 // Réserver un créneau pour un expert à une date précise
 module.exports.bookSlot = async (req, res) => {
   try {
-    const { expertId, date, start, duration, specialty } = req.body;
+    const { expertId, date, start, duration, specialty, promoCode } = req.body;
     if (!expertId || !date || !start || !duration || !specialty) {
       return res.status(400).json({ message: "expertId, date, start, duration et specialty sont requis" });
     }
@@ -99,6 +99,7 @@ module.exports.bookSlot = async (req, res) => {
       holdExpiresAt: new Date(Date.now() + HOLD_MINUTES * 60 * 1000),
       specialty,
       price: computedPrice,
+      promoCode: typeof promoCode === 'string' && promoCode.trim().length > 0 ? promoCode.trim().toUpperCase() : null,
       visio,
       lieu
     });

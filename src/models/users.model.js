@@ -25,6 +25,13 @@ const userSchema = mongoose.Schema({
   phone: {
     type: String,
   },
+  birthdate: {
+    type: Date,
+  },
+  isAdmin: {
+    type: Boolean,
+    default: false
+  },
   favorites: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Expert'

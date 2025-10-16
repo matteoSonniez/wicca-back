@@ -39,6 +39,19 @@ const bookedSlotSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // Code promo appliqué et détails de remise
+  promoCode: {
+    type: String,
+    default: null
+  },
+  discountPercent: {
+    type: Number,
+    default: 0
+  },
+  discountAmountCents: {
+    type: Number,
+    default: 0
+  },
   // Id de la Checkout Session Stripe associée (optionnel)
   stripeSessionId: {
     type: String,

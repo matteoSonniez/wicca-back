@@ -249,7 +249,7 @@ exports.deleteExpertPhoto = async (req, res) => {
 exports.updateExpertProfile = async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ['firstName','email','adressrdv','description','francais','anglais','roumain','allemand','italien','espagnol','avatard','siret'];
+    const allowed = ['firstName','email','adressrdv','description','francais','anglais','roumain','allemand','italien','espagnol','avatard','siret','delayTime'];
     const update = {};
     for (const k of allowed) {
       if (Object.prototype.hasOwnProperty.call(req.body, k)) {
@@ -271,6 +271,18 @@ exports.updateExpertProfile = async (req, res) => {
           update[k] = req.body[k];
         }
       }
+    }
+    // Validation delayTime si fourni
+    if (Object.prototype.hasOwnProperty.call(update, 'delayTime')) {
+      const allowedDelay = [0, 5, 10, 15, 20, 30, 35, 40, 45, 50, 55, 60];
+      const val = Number(update.delayTime);
+      if (!Number.isFinite(val)) {
+        return res.status(400).json({ message: 'delayTime doit être un nombre' });
+      }
+      if (!allowedDelay.includes(val)) {
+        return res.status(400).json({ message: 'delayTime invalide. Valeurs autorisées: 0, 5, 10, 15, 20, 30, 35, 40, 45, 50, 55, 60' });
+      }
+      update.delayTime = val;
     }
     // Normaliser le champ avatard: autoriser string non vide ou null
     if (Object.prototype.hasOwnProperty.call(update, 'avatard')) {
@@ -442,7 +454,7 @@ exports.searchExperts = async (req, res) => {
 
 exports.findExpertsBySpecialty = async (req, res) => {
   try {
-    const { specialtyId, adressrdv } = req.body;
+    const { specialtyId, adressrdv, excludeIds } = req.body;
     const parsedPage = parseInt((req.body && req.body.page) ?? req.query.page, 10);
     const parsedLimit = parseInt((req.body && req.body.limit) ?? req.query.limit, 10);
     const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
@@ -463,18 +475,29 @@ exports.findExpertsBySpecialty = async (req, res) => {
         { 'adressrdv.postalCode': regex }
       ];
     }
+    // Exclure les experts déjà récupérés côté client (sans impacter le total global)
+    let excludeObjectIds = [];
+    if (Array.isArray(excludeIds) && excludeIds.length > 0) {
+      excludeObjectIds = excludeIds
+        .map((id) => (mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : null))
+        .filter(Boolean);
+    }
     const total = await Expert.countDocuments(query);
     const skip = limit ? (page - 1) * limit : 0;
     if (total === 0) {
       if (!limit) return res.status(200).json([]);
       return res.status(200).json({ results: [], total: 0, page, limit, hasMore: false });
     }
-    const sampleSize = limit ? Math.min(total, skip + limit) : total;
-    const expertsAgg = total > 0
+    // Aléatoire sans doublons: appliquer l'exclusion en amont puis échantillonner
+    const matchWithExclusion = excludeObjectIds.length > 0
+      ? { $and: [query, { _id: { $nin: excludeObjectIds } }] }
+      : query;
+    const remainingCount = await Expert.countDocuments(matchWithExclusion);
+    const effectiveLimit = limit || remainingCount;
+    const expertsAgg = remainingCount > 0
       ? await Expert.aggregate([
-          { $match: query },
-          { $sample: { size: total } },
-          ...(limit ? [{ $skip: skip }, { $limit: limit }] : [])
+          { $match: matchWithExclusion },
+          { $sample: { size: Math.min(remainingCount, effectiveLimit) } },
         ])
       : [];
     const experts = await Expert.populate(expertsAgg, [
@@ -491,10 +514,10 @@ exports.findExpertsBySpecialty = async (req, res) => {
     }
     return res.status(200).json({
       results: expertsWithNote,
-      total,
+      total, // total global (sans exclusion) pour la pagination côté client
       page,
       limit,
-      hasMore: skip + expertsWithNote.length < total
+      hasMore: (excludeObjectIds.length + expertsWithNote.length) < total
     });
   } catch (error) {
     res.status(500).json({ message: "Erreur lors de la recherche d'experts par spécialité", error: error.message });
@@ -553,7 +576,8 @@ exports.findExpertsWithFilters = async (req, res) => {
       duree,
       disponibilite, // "immediat", "aujourdhui", "troisjours", null
       langues, // tableau de langues à filtrer
-      includeHistogram // optionnel: renvoyer la distribution des prix sur l'ensemble du résultat filtré
+      includeHistogram, // optionnel: renvoyer la distribution des prix sur l'ensemble du résultat filtré
+      excludeIds // nouveau: exclure les ids déjà renvoyés côté client
     } = req.body;
     const parsedPage = parseInt((req.body && req.body.page) ?? req.query.page, 10);
     const parsedLimit = parseInt((req.body && req.body.limit) ?? req.query.limit, 10);
@@ -652,19 +676,28 @@ exports.findExpertsWithFilters = async (req, res) => {
 
     // Pagination DB
     const skip = limit ? (page - 1) * limit : 0;
-    // Page d'experts aléatoire selon les filtres
+    // Aléatoire sans doublons via exclusion côté DB
     const dForAvail = duree || 30;
     if (totalAfterBasicFilters === 0) {
       const empty = [];
       if (!limit) return res.status(200).json(empty);
       return res.status(200).json({ results: empty, total: 0, page, limit, hasMore: false });
     }
-    const sampleSizePage = limit ? Math.min(totalAfterBasicFilters, skip + limit) : totalAfterBasicFilters;
-    let expertsPage = totalAfterBasicFilters > 0
+    let excludeObjectIds = [];
+    if (Array.isArray(excludeIds) && excludeIds.length > 0) {
+      excludeObjectIds = excludeIds
+        .map((id) => (mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : null))
+        .filter(Boolean);
+    }
+    const matchWithExclusion = excludeObjectIds.length > 0
+      ? { $and: [query, { _id: { $nin: excludeObjectIds } }] }
+      : query;
+    const remainingCount = await Expert.countDocuments(matchWithExclusion);
+    const effectiveLimit = limit || remainingCount;
+    let expertsPage = remainingCount > 0
       ? await Expert.aggregate([
-          { $match: query },
-          { $sample: { size: sampleSizePage } },
-          ...(limit ? [{ $skip: skip }, { $limit: limit }] : [])
+          { $match: matchWithExclusion },
+          { $sample: { size: Math.min(remainingCount, effectiveLimit) } },
         ])
       : [];
     expertsPage = await Expert.populate(expertsPage, [{ path: 'specialties.specialty' }]);
@@ -785,7 +818,7 @@ exports.findExpertsWithFilters = async (req, res) => {
       total: totalForResponse,
       page,
       limit,
-      hasMore: skip + (limit || 0) < totalForResponse,
+      hasMore: (excludeObjectIds.length + (limit || 0)) < totalForResponse,
       ...(priceData ? { priceData } : {})
     });
   } catch (error) {
@@ -844,5 +877,84 @@ exports.getExperts = async (req, res) => {
     res.status(200).json(payload);
   } catch (error) {
     res.status(500).json({ message: "Erreur lors de la récupération des experts", error: error.message });
+  }
+};
+
+// POST /api/experts/find-all (paginé, aléatoire, uniquement isValidate)
+exports.findAllExperts = async (req, res) => {
+  try {
+    const parsedPage = parseInt((req.body && req.body.page) ?? req.query.page, 10);
+    const parsedLimit = parseInt((req.body && req.body.limit) ?? req.query.limit, 10);
+    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : 10;
+    // Support de l'exclusion d'IDs déjà renvoyés côté client pour éviter les doublons sur les pages suivantes
+    const rawExcludeIds = Array.isArray(req.body && req.body.excludeIds) ? req.body.excludeIds : [];
+    const excludeObjectIds = rawExcludeIds
+      .map((id) => (mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : null))
+      .filter(Boolean);
+
+    const baseMatch = { isValidate: true };
+    const total = await Expert.countDocuments(baseMatch);
+    if (total === 0) {
+      return res.status(200).json({ results: [], total: 0, page, limit, hasMore: false });
+    }
+
+    // Si exclusion demandée, on exclut en amont et on échantillonne uniquement dans le restant
+    // Cela évite les doublons entre pages lorsque le front cumule les résultats
+    const matchWithExclusion = excludeObjectIds.length > 0
+      ? { $and: [baseMatch, { _id: { $nin: excludeObjectIds } }] }
+      : baseMatch;
+
+    let expertsAgg;
+    if (excludeObjectIds.length > 0) {
+      const remainingCount = await Expert.countDocuments(matchWithExclusion);
+      const size = Math.min(limit, Math.max(0, remainingCount));
+      expertsAgg = size > 0
+        ? await Expert.aggregate([
+            { $match: matchWithExclusion },
+            { $sample: { size } }
+          ])
+        : [];
+    } else {
+      // Comportement historique: échantillonner tout puis paginer pour un rendu aléatoire reproductible par page
+      expertsAgg = await Expert.aggregate([
+        { $match: baseMatch },
+        { $sample: { size: total } },
+        { $skip: (page - 1) * limit },
+        { $limit: limit },
+      ]);
+    }
+    const experts = await Expert.populate(expertsAgg, [
+      { path: 'specialties.specialty' },
+      { path: 'specialties.subSpecialties' }
+    ]);
+    const allowedDurations = [15, 30, 45, 60, 90];
+    const reqDuration = Number((req.body && req.body.duree) ?? req.query.duree);
+    const dForAvail = allowedDurations.includes(reqDuration) ? reqDuration : 30;
+    const payload = await Promise.all(
+      experts.map(async (e) => {
+        const obj = (e && typeof e.toObject === 'function') ? e.toObject() : e;
+        try {
+          const availabilities = await getAvailabilitiesForExpert(obj._id, dForAvail);
+          obj.availabilities = availabilities;
+        } catch (_) {
+          obj.availabilities = [];
+        }
+        obj.noteMoyenneSur100 = getNoteMoyenneSur100(obj.notes);
+        return obj;
+      })
+    );
+    // hasMore: s'il y a exclusion, comparer (excludeIds.length + payload.length) < total pour refléter le fait qu'on a encore des éléments restants
+    const excludeCount = Array.isArray(rawExcludeIds) ? rawExcludeIds.length : 0;
+    const hasMore = (excludeCount + payload.length) < total && payload.length > 0;
+    return res.status(200).json({
+      results: payload,
+      total,
+      page,
+      limit,
+      hasMore
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur lors de la récupération paginée des experts", error: error.message });
   }
 };
