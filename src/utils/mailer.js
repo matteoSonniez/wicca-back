@@ -32,8 +32,7 @@ async function sendWelcomeEmail({ to, firstName }) {
     <div style="font-family:Inter,Arial,sans-serif;line-height:1.7;color:#111;padding:8px 0">
       <h2 style="margin:0 0 12px;font-size:22px">Bienvenue chez <span style="color:#e91e63">Wicca</span></h2>
       <p style="margin:0 0 16px">Bonjour ${safeFirst},</p>
-      <p style="margin:0 0 12px">Bienvenue dans l’univers de Wicca.</p>
-      <p style="margin:0 0 12px">La première plateforme réunit des praticiens vérifiés dans toutes les disciplines de la guidance spirituelle : <strong>tarot</strong>, <strong>astrologie</strong>, <strong>magnétisme</strong>, <strong>numérologie</strong>, <strong>énergétique</strong> — dans un cadre clair, transparent et moderne.</p>
+      <p style="margin:0 0 12px">Bienvenue sur la première plateforme qui réunit des praticiens vérifiés dans toutes les disciplines de la guidance spirituelle : <strong>tarot</strong>, <strong>astrologie</strong>, <strong>magnétisme</strong>, <strong>numérologie</strong>, <strong>énergétique</strong> — dans un cadre clair, transparent et moderne.</p>
 
       <h3 style="margin:20px 0 8px;font-size:16px">Pourquoi Wicca a été créée</h3>
       <p style="margin:0 0 12px">Wicca est née d’un constat simple :</p>
