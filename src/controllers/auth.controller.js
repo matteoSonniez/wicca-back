@@ -36,12 +36,16 @@ exports.login = async (req, res) => {
 // Body: { role: 'user'|'expert', email, firstName, password, ...autres champs }
 exports.requestSignupCode = async (req, res) => {
   try {
-    const { role, email, termsAccepted } = req.body || {};
+    const { role, email, termsAccepted, password } = req.body || {};
     if (!role || !['user','expert'].includes(role)) {
       return res.status(400).json({ message: 'role invalide' });
     }
     if (typeof email !== 'string' || !email.trim()) {
       return res.status(400).json({ message: 'email requis' });
+    }
+    // Validation mot de passe (pour inscription) : min 6 + au moins 1 majuscule
+    if (typeof password !== 'string' || password.length < 6 || !/[A-Z]/.test(password)) {
+      return res.status(400).json({ message: 'Le mot de passe doit contenir au moins 6 caractères dont une majuscule.' });
     }
     if (role === 'expert' && termsAccepted !== true) {
       return res.status(400).json({ message: "Vous devez accepter les conditions d’utilisation pour continuer." });
