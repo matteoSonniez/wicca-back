@@ -161,6 +161,7 @@ exports.verifySignupCode = async (req, res) => {
         firstName: data.firstName,
         email: data.email,
         password: data.password,
+        phone: (data.phone || '').trim(),
         adressrdv: adressObj,
         siret: data.siret || '',
         specialties: data.specialties,

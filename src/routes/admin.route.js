@@ -19,6 +19,9 @@ router.get('/experts/:id', adminCtrl.getExpertById);
 router.patch('/experts/:id', adminCtrl.updateExpert);
 router.delete('/experts/:id', adminCtrl.deleteExpert);
 
+// RDV
+router.get('/rdv', adminCtrl.listAppointments);
+
 // Placeholders pour futurs endpoints users
 router.get('/users', adminCtrl.listUsers);
 router.post('/users', adminCtrl.createUser);

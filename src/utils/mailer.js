@@ -164,7 +164,6 @@ module.exports.sendVerificationCodeEmail = async function({ to, firstName, role,
 module.exports.sendAppointmentConfirmationEmail = async function({ to, clientFirstName, expertName, dateStr, heureStr, visio, jaasLink }) {
   const subject = 'Votre rendez-vous Wicca est confirmé';
   const safeFirst = clientFirstName || '';
-  const link = visio ? (jaasLink || '') : '';
   const baseUrl = (process.env.APP_BASE_URL || process.env.FRONT_BASE_URL || 'https://wicca.fr').replace(/\/$/, '');
   const manageUrl = `${baseUrl}/rdv`;
 
@@ -262,7 +261,7 @@ module.exports.sendAppointmentConfirmationEmail = async function({ to, clientFir
 
   const parsed = parseDateAndTime(dateStr, heureStr);
   const summary = `Rendez-vous Wicca avec ${expertName}`;
-  const description = visio ? `Séance en visio. Lien: ${link}` : 'Séance en présentiel.';
+  const description = visio ? 'Séance en visio.' : 'Séance en présentiel.';
   const location = visio ? 'En ligne' : 'Présentiel';
   const googleUrl = parsed
     ? `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(summary)}&dates=${formatICSDate(parsed.start)}/${formatICSDate(parsed.end)}&details=${encodeURIComponent(description)}&location=${encodeURIComponent(location)}`
@@ -280,7 +279,7 @@ module.exports.sendAppointmentConfirmationEmail = async function({ to, clientFir
     `Date & heure : ${dateStr} ${heureStr}`,
     `Avec : ${expertName}`,
     `Format : ${visio ? 'Séance en visio' : 'Séance en présentiel'}`,
-    visio ? `Lien d’accès : ${link}` : null,
+    visio ? `Accédez à votre rendez-vous sur la plateforme Wicca sur votre espace rendez-vous : cliquez ici pour accéder à vos rendez-vous — https://wicca.fr` : null,
     parsed ? `Ajouter au calendrier (Google) : ${googleUrl}` : null,
     parsed ? 'Un fichier .ics est joint pour l’ajouter à tout autre calendrier.' : null,
     `Gérer votre rendez-vous (annuler ou déplacer) : ${manageUrl}`,
@@ -306,7 +305,7 @@ module.exports.sendAppointmentConfirmationEmail = async function({ to, clientFir
       <p><strong>Date & heure :</strong> ${dateStr} ${heureStr}<br/>
       <strong>Avec :</strong> ${expertName}<br/>
       <strong>Format :</strong> ${visio ? 'Séance en visio' : 'Séance en présentiel'}<br/>
-      ${visio ? `<strong>Lien d’accès :</strong> <a href="${link}" target="_blank" rel="noopener">Accéder à la visioconférence</a>` : ''}
+      ${visio ? `Accédez à votre rendez-vous sur la plateforme Wicca sur votre espace rendez-vous : <a href="https://wicca.fr" target="_blank" rel="noopener">cliquez ici pour accéder à vos rendez-vous</a>` : ''}
       </p>
       ${parsed ? `<div style="margin:6px 0 18px">
         <a href="${googleUrl}" target="_blank" rel="noopener"

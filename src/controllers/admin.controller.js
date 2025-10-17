@@ -1,6 +1,7 @@
 // Contrôleur centralisé Admin
 const PromoCode = require('../models/promoCode.model');
 const Expert = require('../models/experts.model');
+const BookedSlot = require('../models/bookedSlot.model');
 
 // ---- PROMOS ----
 exports.listPromos = async (req, res) => {
@@ -155,4 +156,42 @@ exports.deleteExpert = async (req, res) => {
   }
 };
 
+
+// ---- RDV (Admin) ----
+exports.listAppointments = async (req, res) => {
+  try {
+    const parsedPage = parseInt(req.query.page, 10);
+    const parsedLimit = parseInt(req.query.limit, 10);
+    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : 50;
+    const skip = (page - 1) * limit;
+
+    const filters = {};
+    if (req.query.paid === 'true') filters.paid = true;
+    if (req.query.paid === 'false') filters.paid = false;
+    if (req.query.cancel === 'true') filters.cancel = true;
+    if (req.query.cancel === 'false') filters.cancel = false;
+
+    // Optionnel: filtrage par date ISO (YYYY-MM-DD)
+    const { from, to } = req.query;
+    if (from || to) {
+      filters.date = {};
+      if (from) filters.date.$gte = new Date(from);
+      if (to) filters.date.$lte = new Date(to);
+    }
+
+    const total = await BookedSlot.countDocuments(filters);
+    const items = await BookedSlot.find(filters)
+      .populate({ path: 'expert', model: 'Expert', select: 'firstName email' })
+      .populate({ path: 'client', model: 'User', select: 'firstName lastName email' })
+      .populate({ path: 'specialty', model: 'Specialty', select: 'name' })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    return res.status(200).json({ items, total, page, limit });
+  } catch (e) {
+    return res.status(500).json({ message: e?.message || 'Erreur serveur' });
+  }
+};
 

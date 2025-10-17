@@ -249,7 +249,7 @@ exports.deleteExpertPhoto = async (req, res) => {
 exports.updateExpertProfile = async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ['firstName','email','adressrdv','description','francais','anglais','roumain','allemand','italien','espagnol','avatard','siret','delayTime'];
+    const allowed = ['firstName','email','adressrdv','description','francais','anglais','roumain','allemand','italien','espagnol','avatard','siret','delayTime','phone'];
     const update = {};
     for (const k of allowed) {
       if (Object.prototype.hasOwnProperty.call(req.body, k)) {
@@ -267,6 +267,9 @@ exports.updateExpertProfile = async (req, res) => {
           } else {
             update[k] = { addressLine: '', postalCode: '', city: '' };
           }
+        } else if (k === 'phone') {
+          const val = (req.body[k] || '').trim();
+          update[k] = val;
         } else {
           update[k] = req.body[k];
         }
