@@ -3,7 +3,7 @@ const router = express.Router();
 const auth = require('../utils/auth');
 const PromoCode = require('../models/promoCode.model');
 
-// Validation simple d'un code promo
+// Validation d'un code promo (type single/multi)
 router.post('/validate', auth, async (req, res) => {
   try {
     const { code } = req.body || {};
@@ -12,8 +12,8 @@ router.post('/validate', auth, async (req, res) => {
     }
     const normalized = code.trim().toUpperCase();
     const now = new Date();
-    const found = await PromoCode.findOne({ code: normalized, active: true, used: { $ne: true } });
-    if (!found) return res.status(404).json({ valid: false, message: 'Code promo invalide' });
+    const found = await PromoCode.findOne({ code: normalized, active: true });
+    if (!found) return res.status(404).json({ valid: false, message: 'Code promo introuvable ou inactif' });
 
     const withinStart = !found.validFrom || found.validFrom <= now;
     const withinEnd = !found.validTo || found.validTo >= now;
@@ -21,12 +21,41 @@ router.post('/validate', auth, async (req, res) => {
       return res.status(400).json({ valid: false, message: 'Code promo expiré ou non disponible' });
     }
 
-    return res.status(200).json({
-      valid: true,
-      code: found.code,
-      percentOff: Number(found.percentOff || 0),
-      singleUse: !!found.singleUse
-    });
+    if (found.type === 'single') {
+      // usage unique global: invalide si déjà utilisé
+      if (found.usedGlobal === true) {
+        return res.status(400).json({ valid: false, message: 'Code déjà utilisé' });
+      }
+      // invalide s'il est temporairement réservé par un autre créneau
+      const reservedValid = !!found.reservedUntil && found.reservedUntil > now;
+      if (reservedValid) {
+        return res.status(400).json({ valid: false, message: "Code en cours d'utilisation, réessayez plus tard" });
+      }
+      return res.status(200).json({
+        valid: true,
+        code: found.code,
+        percentOff: Number(found.percentOff || 0),
+        type: found.type
+      });
+    }
+
+    if (found.type === 'multi') {
+      // multi: une seule fois par utilisateur
+      const userId = req.user && req.user._id ? String(req.user._id) : null;
+      if (!userId) return res.status(401).json({ valid: false, message: 'Authentification requise' });
+      const already = (found.usedBy || []).some(u => String(u.user) === userId);
+      if (already) {
+        return res.status(400).json({ valid: false, message: 'Vous avez déjà utilisé ce code' });
+      }
+      return res.status(200).json({
+        valid: true,
+        code: found.code,
+        percentOff: Number(found.percentOff || 0),
+        type: found.type
+      });
+    }
+
+    return res.status(400).json({ valid: false, message: 'Type de code promo invalide' });
   } catch (e) {
     return res.status(500).json({ valid: false, message: e?.message || 'Erreur serveur' });
   }
@@ -35,5 +64,3 @@ router.post('/validate', auth, async (req, res) => {
 // CRUD promo déplacé vers /api/admin/promos
 
 module.exports = router;
-
-

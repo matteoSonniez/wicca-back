@@ -15,11 +15,12 @@ exports.listPromos = async (req, res) => {
 
 exports.createPromo = async (req, res) => {
   try {
-    const { code, percentOff = 10, active = true, validFrom = null, validTo = null, description = '', singleUse = true } = req.body || {};
+    const { code, percentOff = 10, active = true, validFrom = null, validTo = null, description = '', type = 'single' } = req.body || {};
     if (!code || String(code).trim().length === 0) return res.status(400).json({ message: 'code requis' });
     const existing = await PromoCode.findOne({ code: String(code).trim().toUpperCase() });
     if (existing) return res.status(409).json({ message: 'Code déjà existant' });
-    const created = await PromoCode.create({ code, percentOff, active, validFrom, validTo, description, singleUse });
+    if (!['single','multi'].includes(type)) return res.status(400).json({ message: 'type invalide (single|multi)' });
+    const created = await PromoCode.create({ code, percentOff, active, validFrom, validTo, description, type });
     return res.status(201).json({ item: created });
   } catch (e) {
     return res.status(500).json({ message: e?.message || 'Erreur serveur' });
@@ -30,9 +31,12 @@ exports.updatePromo = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = {};
-    const allowed = ['code', 'percentOff', 'active', 'validFrom', 'validTo', 'description', 'singleUse'];
+    const allowed = ['code', 'percentOff', 'active', 'validFrom', 'validTo', 'description', 'type'];
     for (const k of allowed) {
       if (k in (req.body || {})) updates[k] = req.body[k];
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'type')) {
+      if (!['single','multi'].includes(updates.type)) return res.status(400).json({ message: 'type invalide (single|multi)' });
     }
     const updated = await PromoCode.findByIdAndUpdate(id, { $set: updates }, { new: true });
     if (!updated) return res.status(404).json({ message: 'Code promo introuvable' });
