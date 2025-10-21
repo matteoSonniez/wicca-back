@@ -279,10 +279,10 @@ module.exports.sendAppointmentConfirmationEmail = async function({ to, clientFir
     `Date & heure : ${dateStr} ${heureStr}`,
     `Avec : ${expertName}`,
     `Format : ${visio ? 'Séance en visio' : 'Séance en présentiel'}`,
-    visio ? `Accédez à votre rendez-vous sur la plateforme Wicca sur votre espace rendez-vous : cliquez ici pour accéder à vos rendez-vous — https://wicca.fr` : null,
+    visio ? `accéder à votre rendez-vous : ${(jaasLink || manageUrl)}` : null,
     parsed ? `Ajouter au calendrier (Google) : ${googleUrl}` : null,
     parsed ? 'Un fichier .ics est joint pour l’ajouter à tout autre calendrier.' : null,
-    `Gérer votre rendez-vous (annuler ou déplacer) : ${manageUrl}`,
+    `Gérer votre rendez-vous (annuler ou déplacer) : ${(jaasLink || manageUrl)}`,
     '',
     adviceTitle,
     ...adviceText.map(l => `• ${l}`),
@@ -305,7 +305,12 @@ module.exports.sendAppointmentConfirmationEmail = async function({ to, clientFir
       <p><strong>Date & heure :</strong> ${dateStr} ${heureStr}<br/>
       <strong>Avec :</strong> ${expertName}<br/>
       <strong>Format :</strong> ${visio ? 'Séance en visio' : 'Séance en présentiel'}<br/>
-      ${visio ? `Accédez à votre rendez-vous sur la plateforme Wicca sur votre espace rendez-vous : <a href="https://wicca.fr" target="_blank" rel="noopener">cliquez ici pour accéder à vos rendez-vous</a>` : ''}
+      ${visio ? `<div style="margin:14px 0 18px">
+        <a href="${(jaasLink || manageUrl)}" target="_blank" rel="noopener"
+           style="display:inline-block;background:#e91e63;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:600">
+          accéder à votre rendez-vous
+        </a>
+      </div>` : ''}
       </p>
       ${parsed ? `<div style="margin:6px 0 18px">
         <a href="${googleUrl}" target="_blank" rel="noopener"
@@ -315,7 +320,7 @@ module.exports.sendAppointmentConfirmationEmail = async function({ to, clientFir
         <span style="display:inline-block;color:#555;vertical-align:middle">Ou utilisez le fichier <strong>.ics</strong> joint.</span>
       </div>` : ''}
       <div style="margin:18px 0 22px">
-        <a href="${manageUrl}" target="_blank" rel="noopener"
+        <a href="${(jaasLink || manageUrl)}" target="_blank" rel="noopener"
            style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:600">
           Annuler ou déplacer le rendez-vous
         </a>

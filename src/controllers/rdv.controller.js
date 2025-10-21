@@ -163,6 +163,16 @@ const sendAppointmentConfirmation = async (req, res) => {
     if (!slot) return res.status(404).json({ message: 'RDV introuvable' });
     if (String(slot.client?._id) !== String(me._id)) return res.status(403).json({ message: 'Non autorisé' });
 
+  console.log('[RDV] send-confirmation for slot', String(slot._id), {
+    expertId: String(slot.expert?._id || ''),
+    expertEmail: slot.expert?.email || '',
+    clientEmail: slot.client?.email || '',
+    visio: !!slot.visio,
+    start: slot.start,
+    end: slot.end,
+    date: slot.date
+  });
+
     // idempotent
     if (slot.emailConfirmationSent === true) {
       return res.status(200).json({ message: 'Déjà envoyé' });
@@ -187,6 +197,7 @@ const sendAppointmentConfirmation = async (req, res) => {
       visio,
       jaasLink: link
     });
+  console.log('[RDV] Email confirmation client envoyé');
     // Envoi à l'expert si pas déjà envoyé
     if (slot.expert && slot.expert.email && slot.expertNotificationSent !== true) {
       const clientName = [slot.client?.firstName, slot.client?.lastName].filter(Boolean).join(' ').trim();
@@ -201,10 +212,43 @@ const sendAppointmentConfirmation = async (req, res) => {
           jaasLink: link
         });
         slot.expertNotificationSent = true;
+      console.log('[RDV] Email notification expert envoyé');
       } catch (e) {
         // ne bloque pas la réponse
+      console.warn('[RDV] Erreur envoi email expert', e?.message || e);
       }
     }
+
+  // Envoi SMS expert au même moment que l'email (indépendant de l'email)
+  try {
+    if (slot.expert && slot.expert._id) {
+      const Expert = require('../models/experts.model');
+      const { sendSms } = require('../utils/sms');
+      const expertDoc = await Expert.findById(slot.expert._id).select('phone');
+      const expertPhone = expertDoc && expertDoc.phone ? String(expertDoc.phone).trim() : '';
+      console.log('[RDV] Expert phone fetched', { expertPhone });
+      if (expertPhone) {
+        const baseUrl = (process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://wicca.fr').replace(/\/$/, '');
+        const dashUrl = `${baseUrl}`;
+        const visioTxt = visio ? 'Visio' : 'Présentiel';
+        const msg = [
+          `Wicca · Vous avez un nouveau rendez-vous`,
+          `${dateStr} ${heureStr}`,
+          `Client: ${safeFirst || 'un client'}`,
+          `Format: ${visioTxt}`,
+          `Gérer: ${dashUrl}`
+        ].join('\n');
+        await sendSms({ to: expertPhone, message: msg, tag: 'rdv-paid' });
+        console.log('[RDV] SMS expert envoyé');
+      } else {
+        console.warn('[RDV] Aucun numéro expert, SMS non envoyé');
+      }
+    } else {
+      console.warn('[RDV] Expert manquant, SMS non envoyé');
+    }
+  } catch (e) {
+    console.warn('[RDV] Erreur envoi SMS expert', e?.message || e);
+  }
 
     slot.emailConfirmationSent = true;
     await slot.save();

@@ -1,10 +1,22 @@
 const Availability = require('../models/availabilities.model');
 const Expert = require('../models/experts.model');
 
-async function getAvailabilitiesForExpert(expertId, duration) {
+async function getAvailabilitiesForExpert(expertId, duration, specialtyId) {
   if (!expertId || !duration) return [];
   const expert = await Expert.findById(expertId);
   if (!expert) return [];
+  // Délai spécifique à la spécialité (en minutes)
+  const leadMinutes = (() => {
+    try {
+      if (!specialtyId) return 0;
+      const spec = (expert.specialties || []).find(s => String(s.specialty) === String(specialtyId));
+      return Number(spec?.delayTime) || 0;
+    } catch (_) {
+      return 0;
+    }
+  })();
+  // Appliquer une marge par défaut de 10 minutes si aucun délai n'est défini
+  const effectiveLeadMinutes = (Number(leadMinutes) > 0) ? Number(leadMinutes) : 10;
   const today = new Date();
   const yyyy = today.getFullYear();
   const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -107,17 +119,39 @@ async function getAvailabilitiesForExpert(expertId, duration) {
     // Délai entre consultations (minutes)
     const gap = Number(expert.delayTime) || 0;
     let nowMinutes = 0;
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    const todayStr = `${yyyy}-${mm}-${dd}`;
-    if (avail.date === todayStr) {
-      // Appliquer un délai minimal de 10 minutes avant le prochain créneau affiché
-      nowMinutes = today.getHours() * 60 + today.getMinutes() + 10;
+    let minStartDateStr = null; // date à laquelle appliquer nowMinutes
+    const now = new Date();
+    const leadDeadline = new Date(now.getTime() + Number(effectiveLeadMinutes) * 60000);
+    const leadY = leadDeadline.getFullYear();
+    const leadM = String(leadDeadline.getMonth() + 1).padStart(2, '0');
+    const leadD = String(leadDeadline.getDate()).padStart(2, '0');
+    const leadDateStr = `${leadY}-${leadM}-${leadD}`;
+    if (effectiveLeadMinutes > 0) {
+      if (avail.date < leadDateStr) {
+        // Ce jour est entièrement avant la fenêtre autorisée
+        return { date: avail.date, slots: [], ranges: Array.isArray(avail.ranges) ? avail.ranges : [] };
+      } else if (avail.date === leadDateStr) {
+        nowMinutes = leadDeadline.getHours() * 60 + leadDeadline.getMinutes();
+        minStartDateStr = leadDateStr;
+      } else {
+        nowMinutes = 0;
+        minStartDateStr = null;
+      }
+    } else {
+      // Pas de délai: garder le comportement "dès maintenant"
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      const todayStrLocal = `${y}-${m}-${d}`;
+      if (avail.date === todayStrLocal) {
+        nowMinutes = now.getHours() * 60 + now.getMinutes();
+        minStartDateStr = todayStrLocal;
+      } else {
+        minStartDateStr = null;
+      }
     }
     // Préparer les fenêtres interdites pour les DÉBUTS de créneau, en fonction des RDV existants + délai
-    const now = new Date();
+    // now déjà défini plus haut
     const blocking = (avail.bookedSlots || [])
       .filter(slot => !!slot && !slot.cancel)
       .filter(slot => {
@@ -149,9 +183,9 @@ async function getAvailabilitiesForExpert(expertId, duration) {
       const endMinutes = endH * 60 + endM;
       let current = h * 60 + m;
       while (current + duration <= endMinutes) {
-        if (avail.date !== todayStr || current >= nowMinutes) {
-          // Si on est aujourd'hui, respecter le nowMinutes minimal
-          if (avail.date === todayStr && current < nowMinutes) {
+        if (!minStartDateStr || avail.date !== minStartDateStr || current >= nowMinutes) {
+          // Si on est le jour de la contrainte, respecter le nowMinutes minimal
+          if (minStartDateStr && avail.date === minStartDateStr && current < nowMinutes) {
             current = nowMinutes;
             continue;
           }

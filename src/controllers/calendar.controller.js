@@ -48,6 +48,27 @@ module.exports.bookSlot = async (req, res) => {
     const startDate = new Date(`1970-01-01T${start}:00Z`);
     const endDate = new Date(startDate.getTime() + duration * 60000);
     const end = endDate.toISOString().substr(11, 5); // format HH:mm
+  // Respecter le délai par spécialité: interdire réservation avant now + delayTime si date=today
+  try {
+    const spec = (expert.specialties || []).find(s => String(s.specialty) === String(specialty));
+    const lead = Number(spec?.delayTime) || 0;
+    const effectiveLead = lead > 0 ? lead : 10; // 10 min par défaut si aucun délai
+    if (effectiveLead > 0) {
+      const now = new Date();
+      const deadline = new Date(now.getTime() + effectiveLead * 60000);
+      const minDateStr = deadline.toISOString().slice(0, 10);
+      const reqDateStr = new Date(date).toISOString().slice(0, 10);
+      if (reqDateStr < minDateStr) {
+        return res.status(400).json({ message: `Premier créneau réservable à partir du ${minDateStr}` });
+      }
+      if (reqDateStr === minDateStr) {
+        const minStartStr = deadline.toISOString().substr(11,5);
+        if (start < minStartStr) {
+          return res.status(400).json({ message: `Premier créneau réservable ce jour à partir de ${minStartStr}` });
+        }
+      }
+    }
+  } catch (_) {}
     // Vérifier que le créneau est dans au moins une des plages de disponibilité (ranges)
     const ranges = Array.isArray(availability.ranges) ? availability.ranges : [];
     const isInside = ranges.some(r => start >= r.start && end <= r.end);
@@ -129,6 +150,7 @@ module.exports.bookSlot = async (req, res) => {
     } catch (e) {
       console.warn('Impossible d\'ajouter le rdv à l\'expert:', e?.message);
     }
+    // SMS expert déplacé: envoi uniquement après paiement réussi (webhook Stripe)
     res.status(201).json({ message: "Créneau réservé avec succès", slot: newSlot });
   } catch (error) {
     res.status(500).json({ message: "Erreur lors de la réservation du créneau", error: error.message });
@@ -140,11 +162,12 @@ module.exports.getAvailableSlots = async (req, res) => {
   try {
     const { expertId } = req.params;
     const duration = parseInt(req.query.duration, 10);
+    const specialtyId = req.query.specialty || req.query.specialtyId || null;
     if (!expertId || !duration) {
       return res.status(400).json({ message: "expertId et duration sont requis" });
     }
     const { getAvailabilitiesForExpert } = require('../utils/availabilities');
-    const result = await getAvailabilitiesForExpert(expertId, duration);
+    const result = await getAvailabilitiesForExpert(expertId, duration, specialtyId);
     return res.status(200).json({ availabilities: result });
   } catch (error) {
     return res.status(500).json({ message: "Erreur lors de la récupération des créneaux disponibles", error: error.message });

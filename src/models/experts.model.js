@@ -125,6 +125,12 @@ const expertSchema = mongoose.Schema({
       type: Boolean,
       default: false
     },
+    // Délai minimum avant le premier créneau proposé pour cette spécialité (en minutes)
+    delayTime: {
+      type: Number,
+      enum: [0, 15, 30, 60, 120, 180, 360, 720, 1440, 2880],
+      default: 0
+    },
     prix_15min: {
       type: Number,
       min: 0,

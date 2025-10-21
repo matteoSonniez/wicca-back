@@ -163,7 +163,7 @@ exports.updateExpertSpecialties = async (req, res) => {
     const expert = await Expert.findByIdAndUpdate(
       id,
       { specialties },
-      { new: true }
+      { new: true, runValidators: true, context: 'query' }
     )
     .populate([
       { path: 'specialties.specialty' },
