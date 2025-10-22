@@ -94,7 +94,7 @@ module.exports.bookSlot = async (req, res) => {
     console.log(req.user, "req.user");
     // Ajouter le créneau réservé
     // Créer un hold temporaire qui expirera automatiquement si pas payé
-    const HOLD_MINUTES = 2;
+    const HOLD_MINUTES = 10;
     // Déterminer visio/lieu selon la demande du front
     // Convention: si req.body.visio === true => rendez-vous à distance, lieu = null
     // Sinon si req.body.lieu est fourni (string non vide) => présentiel

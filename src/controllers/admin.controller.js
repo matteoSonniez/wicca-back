@@ -2,6 +2,7 @@
 const PromoCode = require('../models/promoCode.model');
 const Expert = require('../models/experts.model');
 const BookedSlot = require('../models/bookedSlot.model');
+const User = require('../models/users.model');
 
 // ---- PROMOS ----
 exports.listPromos = async (req, res) => {
@@ -57,8 +58,41 @@ exports.deletePromo = async (req, res) => {
   }
 };
 
-// Placeholders pour futurs endpoints (utilisateurs, etc.)
-exports.listUsers = async (req, res) => { return res.status(501).json({ message: 'À implémenter' }); };
+// ---- UTILISATEURS (Admin) ----
+exports.listUsers = async (req, res) => {
+  try {
+    const parsedPage = parseInt(req.query.page, 10);
+    const parsedLimit = parseInt(req.query.limit, 10);
+    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : 50;
+    const skip = (page - 1) * limit;
+
+    const { q } = req.query || {};
+    const filters = {};
+    if (q && String(q).trim().length > 0) {
+      const regex = new RegExp(String(q).trim(), 'i');
+      filters.$or = [
+        { firstName: regex },
+        { lastName: regex },
+        { email: regex },
+        { phone: regex },
+      ];
+    }
+
+    const total = await User.countDocuments(filters);
+    const items = await User.find(filters)
+      .select({ password: 0 })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    return res.status(200).json({ items, total, page, limit });
+  } catch (e) {
+    return res.status(500).json({ message: e?.message || 'Erreur serveur' });
+  }
+};
+
+// placeholders pour création/suppression si besoin ultérieur
 exports.createUser = async (req, res) => { return res.status(501).json({ message: 'À implémenter' }); };
 exports.deleteUser = async (req, res) => { return res.status(501).json({ message: 'À implémenter' }); };
 
