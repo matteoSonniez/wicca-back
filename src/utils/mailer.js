@@ -159,6 +159,47 @@ module.exports.sendVerificationCodeEmail = async function({ to, firstName, role,
   return sendEmail({ to, subject, text, html });
 }
 
+// Email de réinitialisation de mot de passe
+// Params: { to, resetLink, firstName }
+module.exports.sendPasswordResetEmail = async function({ to, resetLink, firstName }) {
+  const subject = 'Réinitialisation de votre mot de passe Wicca';
+  const safeFirst = firstName ? firstName : '';
+  const link = (resetLink || '').replace(/\s+/g, '');
+
+  const text = [
+    'Objet : Réinitialisation de votre mot de passe Wicca',
+    '',
+    safeFirst ? `Bonjour ${safeFirst},` : 'Bonjour,',
+    '',
+    'Vous avez demandé à réinitialiser votre mot de passe.',
+    'Pour définir un nouveau mot de passe, cliquez sur le lien ci-dessous :',
+    link,
+    '',
+    'Si vous n’êtes pas à l’origine de cette demande, vous pouvez ignorer cet email.',
+    '',
+    'À très bientôt,',
+    'L’équipe Wicca'
+  ].join('\n');
+
+  const html = `
+    <div style="font-family:Inter,Arial,sans-serif;line-height:1.7;color:#111;padding:8px 0">
+      <h2 style="margin:0 0 12px;font-size:22px">Réinitialisation de votre mot de passe</h2>
+      <p>${safeFirst ? `Bonjour ${safeFirst},` : 'Bonjour,'}</p>
+      <p>Vous avez demandé à réinitialiser votre mot de passe.</p>
+      <div style="margin:16px 0 20px">
+        <a href="${link}" target="_blank" rel="noopener"
+           style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:600">
+          Définir un nouveau mot de passe
+        </a>
+      </div>
+      <p style="margin:12px 0; font-size:13px;color:#555">Ce lien expirera automatiquement. Si vous n’êtes pas à l’origine de cette demande, ignorez cet email.</p>
+      <p style="margin:20px 0">À très bientôt,<br/>L’équipe Wicca</p>
+    </div>
+  `;
+
+  return sendEmail({ to, subject, text, html });
+}
+
 // Envoie l'email de confirmation de RDV (visio/présentiel)
 // Params: { to, clientFirstName, expertName, dateStr, heureStr, visio, jaasLink }
 module.exports.sendAppointmentConfirmationEmail = async function({ to, clientFirstName, expertName, dateStr, heureStr, visio, jaasLink }) {

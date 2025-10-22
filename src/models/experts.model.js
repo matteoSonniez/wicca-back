@@ -206,6 +206,12 @@ const expertSchema = mongoose.Schema({
   }
 )
 
+// Champs de réinitialisation de mot de passe
+expertSchema.add({
+  passwordResetToken: { type: String, default: null },
+  passwordResetExpires: { type: Date, default: null }
+});
+
 // Rendre les réponses JSON et Object rétro-compatibles:
 // - Inclure `adressrdv` sous forme de chaîne jointe "addressLine, postalCode, city"
 // - Conserver l'objet complet sous `adressrdvObj`

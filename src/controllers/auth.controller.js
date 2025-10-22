@@ -3,6 +3,8 @@ const User = require("../models/users.model");
 const Expert = require("../models/experts.model");
 const SignupVerification = require("../models/signupVerification.model");
 const { sendVerificationCodeEmail, sendWelcomeEmail, sendExpertWelcomeEmail } = require("../utils/mailer");
+const crypto = require('crypto');
+const { sendPasswordResetEmail } = require('../utils/mailer');
 const signJwt = require("../utils/signJwt");
 
 exports.login = async (req, res) => {
@@ -188,5 +190,73 @@ exports.verifySignupCode = async (req, res) => {
       return res.status(409).json({ message: 'Cet email est déjà utilisé' });
     }
     return res.status(500).json({ message: 'Erreur lors de la vérification', error: error.message });
+  }
+}
+
+// POST /auth/forgot-password
+// Body: { email }
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    if (!normalizedEmail) return res.status(400).json({ message: 'email requis' });
+
+    // Chercher dans User puis Expert
+    let account = await User.findOne({ email: normalizedEmail });
+    let role = 'user';
+    if (!account) {
+      account = await Expert.findOne({ email: normalizedEmail });
+      role = account ? 'expert' : null;
+    }
+    // Pour ne pas révéler l’existence d’un compte, on répond 200 même si pas trouvé
+    if (!account) {
+      return res.status(200).json({ message: 'Si un compte existe, un email a été envoyé' });
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expires = new Date(Date.now() + 60 * 60 * 1000); // 1h
+
+    account.passwordResetToken = tokenHash;
+    account.passwordResetExpires = expires;
+    await account.save();
+
+    const baseUrl = (process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
+    const resetLink = `${baseUrl}/reset-password?token=${encodeURIComponent(rawToken)}&role=${role}`;
+
+    await sendPasswordResetEmail({ to: account.email, resetLink, firstName: account.firstName });
+
+    return res.status(200).json({ message: 'Si un compte existe, un email a été envoyé' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Erreur lors de la demande', error: error.message });
+  }
+}
+
+// POST /auth/reset-password
+// Body: { token, role, password }
+exports.resetPassword = async (req, res) => {
+  try {
+    const { token, role, password } = req.body || {};
+    if (!token || !password) return res.status(400).json({ message: 'token et password requis' });
+    if (typeof password !== 'string' || password.length < 6) {
+      return res.status(400).json({ message: 'Le mot de passe doit contenir au moins 6 caractères' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(String(token)).digest('hex');
+
+    let Model = null;
+    if (role === 'expert') Model = Expert; else Model = User;
+
+    const account = await Model.findOne({ passwordResetToken: tokenHash, passwordResetExpires: { $gt: new Date() } });
+    if (!account) return res.status(400).json({ message: 'Token invalide ou expiré' });
+
+    account.password = password; // sera hashé par pre('save')
+    account.passwordResetToken = null;
+    account.passwordResetExpires = null;
+    await account.save();
+
+    return res.status(200).json({ message: 'Mot de passe mis à jour' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Erreur lors de la réinitialisation', error: error.message });
   }
 }

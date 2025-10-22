@@ -46,6 +46,12 @@ const userSchema = mongoose.Schema({
   }
 )
 
+// Champs de réinitialisation de mot de passe
+userSchema.add({
+  passwordResetToken: { type: String, default: null },
+  passwordResetExpires: { type: Date, default: null }
+});
+
 // Index unique déjà défini via le champ { unique: true } sur email
 
 userSchema.pre('save', function (next) {
