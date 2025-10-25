@@ -13,6 +13,7 @@ const dashboardRouter = require("./dashboard.route");
 const reviewsRouter = require("./reviews.route");
 const promoRouter = require("./promo.route");
 const adminRouter = require("./admin.route");
+const analyticsRouter = require("./analytics.route");
 
 router.use("/experts", expertsRouter);
 router.use("/users", usersRouter);
@@ -27,5 +28,6 @@ router.use("/dashboard", dashboardRouter);
 router.use("/reviews", reviewsRouter);
 router.use("/promo", promoRouter);
 router.use("/admin", adminRouter);
+router.use("/analytics", analyticsRouter);
 
 module.exports = router;

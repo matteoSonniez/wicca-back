@@ -28,6 +28,25 @@ const userSchema = mongoose.Schema({
   birthdate: {
     type: Date,
   },
+  acquisitionSource: {
+    type: String,
+    enum: [
+      'Sur Instagram',
+      'Sur TikTok',
+      'En cherchant sur Google',
+      'Par un expert Wicca',
+      'Par un(e) ami(e) ou le bouche-à-oreille',
+      'En voyant un article / une publication en ligne',
+      'Via une publicité (Meta ou Google)',
+      'Grâce à un code promo ou un jeu concours',
+      'Autre'
+    ],
+  },
+  acquisitionSourceOther: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   isAdmin: {
     type: Boolean,
     default: false

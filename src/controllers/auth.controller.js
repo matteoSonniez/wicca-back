@@ -125,7 +125,9 @@ exports.verifySignupCode = async (req, res) => {
         email: data.email,
         password: data.password,
         phone: data.phone,
-        birthdate: data.birthdate ? new Date(data.birthdate) : undefined
+        birthdate: data.birthdate ? new Date(data.birthdate) : undefined,
+        acquisitionSource: data.acquisitionSource || undefined,
+        acquisitionSourceOther: data.acquisitionSource === 'Autre' ? (data.acquisitionSourceOther || '') : ''
       });
       await user.save();
       // Email de bienvenue (asynchrone, non bloquant)

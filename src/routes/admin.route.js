@@ -22,6 +22,20 @@ router.delete('/experts/:id', adminCtrl.deleteExpert);
 // RDV
 router.get('/rdv', adminCtrl.listAppointments);
 
+// Stats acquisitions
+router.get('/stats/acquisitions', adminCtrl.acquisitionStats);
+// Analytics overview
+router.get('/analytics/overview', adminCtrl.analyticsOverview);
+// Analytics insights avancés
+router.get('/analytics/insights', adminCtrl.analyticsInsights);
+// Analytics funnel
+router.get('/analytics/funnel', adminCtrl.analyticsFunnel);
+// Analytics export CSV
+router.get('/analytics/export.csv', adminCtrl.analyticsExportCsv);
+// Analytics exits
+router.get('/analytics/exits', adminCtrl.analyticsExits);
+// Analytics purge (danger)
+router.delete('/analytics', adminCtrl.analyticsPurge);
 // Placeholders pour futurs endpoints users
 router.get('/users', adminCtrl.listUsers);
 router.post('/users', adminCtrl.createUser);
